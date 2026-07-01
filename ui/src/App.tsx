@@ -11,6 +11,7 @@ import { Teams } from '@/pages/Teams';
 import { TeamDetail } from '@/pages/TeamDetail';
 import { AcceptInvite } from '@/pages/AcceptInvite';
 import { ProjectDetail } from '@/pages/ProjectDetail';
+import { ApiDetail } from '@/pages/ApiDetail';
 import { Page1 } from '@/pages/Page1';
 import { Page2 } from '@/pages/Page2';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
@@ -90,6 +91,10 @@ function AppContent() {
                           <Route path="/teams" element={<Teams />} />
                           <Route path="/teams/:teamId" element={<TeamDetail />} />
                           <Route path="/teams/:teamId/projects/:projectId" element={<ProjectDetail />} />
+                          <Route
+                            path="/teams/:teamId/projects/:projectId/apis/:apiId"
+                            element={<ApiDetail />}
+                          />
                           <Route path="/page1" element={<Page1 />} />
                           <Route path="/page2" element={<Page2 />} />
                           <Route path="/settings" element={<Settings />} />

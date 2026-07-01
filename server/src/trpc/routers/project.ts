@@ -14,25 +14,12 @@ import {
 } from '../../schema/zod';
 import {
   isTeamAdmin,
+  requireProjectAccess,
   requireProjectInTeam,
   requireProjectMember,
 } from '../../lib/project-auth';
 import { requireAdmin, requireMembership } from '../../lib/team-auth';
 import { protectedProcedure, verifiedProcedure, router } from '../init';
-
-async function requireProjectAccess(
-  db: Parameters<typeof requireMembership>[0],
-  teamId: string,
-  projectId: string,
-  userId: string
-) {
-  const teamMembership = await requireMembership(db, teamId, userId);
-  const project = await requireProjectInTeam(db, projectId, teamId);
-  if (teamMembership.role !== 'admin') {
-    await requireProjectMember(db, projectId, userId);
-  }
-  return { project, teamMembership };
-}
 
 export const projectRouter = router({
   create: verifiedProcedure.input(projectCreateSchema).mutation(async ({ ctx, input }) => {

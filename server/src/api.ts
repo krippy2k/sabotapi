@@ -3,7 +3,9 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { trpcServer } from '@hono/trpc-server';
-import { setEnvContext } from './lib/env';
+import { setEnvContext, getDatabaseUrl } from './lib/env';
+import { getDatabase } from './lib/db';
+import { handleMockRequest } from './lib/mock-proxy';
 import { appRouter } from './trpc/router';
 import { createTRPCContext } from './trpc/init';
 
@@ -31,6 +33,17 @@ app.use('*', async (c, next) => {
 // Middleware
 app.use('*', logger());
 app.use('*', cors());
+
+// Mock API gateway — public, no auth
+app.all('/mock/:projectId', async (c) => {
+  const db = await getDatabase(getDatabaseUrl());
+  return handleMockRequest(db, c.req.param('projectId'), c.req.raw);
+});
+
+app.all('/mock/:projectId/*', async (c) => {
+  const db = await getDatabase(getDatabaseUrl());
+  return handleMockRequest(db, c.req.param('projectId'), c.req.raw);
+});
 
 app.use(
   '/trpc/*',

@@ -8,7 +8,7 @@ import {
   type Project,
   type ProjectMember,
 } from '../schema/projects';
-import { getMembership } from './team-auth';
+import { getMembership, requireMembership } from './team-auth';
 
 export async function getProject(
   db: DatabaseConnection,
@@ -65,6 +65,20 @@ export async function isTeamAdmin(
 ): Promise<boolean> {
   const membership = await getMembership(db, teamId, userId);
   return membership?.role === 'admin';
+}
+
+export async function requireProjectAccess(
+  db: DatabaseConnection,
+  teamId: string,
+  projectId: string,
+  userId: string
+) {
+  const teamMembership = await requireMembership(db, teamId, userId);
+  const project = await requireProjectInTeam(db, projectId, teamId);
+  if (teamMembership.role !== 'admin') {
+    await requireProjectMember(db, projectId, userId);
+  }
+  return { project, teamMembership };
 }
 
 export async function applyInviteProjectAssignments(

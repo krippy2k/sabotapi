@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, Trash2 } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
+import { ArrowLeft, Trash2, Webhook } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
 type PendingConfirm =
@@ -19,6 +20,8 @@ export function ProjectDetail() {
   const [name, setName] = useState('');
   const [addUserId, setAddUserId] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm>(null);
+  const [apiName, setApiName] = useState('');
+  const [showApiForm, setShowApiForm] = useState(false);
 
   const utils = trpc.useUtils();
 
@@ -50,6 +53,19 @@ export function ProjectDetail() {
   const removeMemberMutation = trpc.project.members.remove.useMutation({
     onSuccess: () =>
       void utils.project.get.invalidate({ teamId: teamId!, projectId: projectId! }),
+  });
+
+  const apisQuery = trpc.mockApi.apis.list.useQuery(
+    { teamId: teamId!, projectId: projectId! },
+    { enabled: !!teamId && !!projectId }
+  );
+
+  const createApiMutation = trpc.mockApi.apis.create.useMutation({
+    onSuccess: () => {
+      void utils.mockApi.apis.list.invalidate({ teamId: teamId!, projectId: projectId! });
+      setApiName('');
+      setShowApiForm(false);
+    },
   });
 
   useEffect(() => {
@@ -242,6 +258,71 @@ export function ProjectDetail() {
           {deleteMutation.isError ? (
             <p className="text-sm text-destructive">{deleteMutation.error.message}</p>
           ) : null}
+        </CardContent>
+      </Card>
+
+      <Separator className="my-6" />
+
+      <Card className="mb-6">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Webhook className="w-5 h-5" />
+              APIs
+            </CardTitle>
+            <CardDescription>Mock APIs and routes for this project</CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setShowApiForm((v) => !v)}>
+            New API
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {showApiForm ? (
+            <div className="flex gap-2">
+              <Input
+                value={apiName}
+                onChange={(e) => setApiName(e.target.value)}
+                placeholder="API name"
+              />
+              <Button
+                onClick={() =>
+                  void createApiMutation.mutateAsync({ teamId, projectId, name: apiName })
+                }
+                disabled={!apiName.trim() || createApiMutation.isPending}
+              >
+                Create
+              </Button>
+            </div>
+          ) : null}
+          {createApiMutation.isError ? (
+            <p className="text-sm text-destructive">{createApiMutation.error.message}</p>
+          ) : null}
+          {apisQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading APIs…</p>
+          ) : !apisQuery.data?.length ? (
+            <p className="text-sm text-muted-foreground">No APIs yet</p>
+          ) : (
+            <div className="space-y-2">
+              {apisQuery.data.map((api) => (
+                <div
+                  key={api.id}
+                  className="flex items-center justify-between py-2 border-b last:border-0"
+                >
+                  <Link
+                    to={`/teams/${teamId}/projects/${projectId}/apis/${api.id}`}
+                    className="font-medium hover:underline"
+                  >
+                    {api.name}
+                  </Link>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to={`/teams/${teamId}/projects/${projectId}/apis/${api.id}`}>
+                      Manage routes
+                    </Link>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

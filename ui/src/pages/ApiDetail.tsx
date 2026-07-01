@@ -25,12 +25,43 @@ type RouteFormState = {
   responseBody: string;
 };
 
+const FAKER_EXAMPLES = [
+  '{{faker.person.firstName}}',
+  '{{faker.person.lastName}}',
+  '{{faker.internet.email}}',
+  '{{faker.phone.number}}',
+  '{{faker.string.uuid}}',
+  '{{faker.location.city}}',
+] as const;
+
+const FAKER_ARRAY_TEMPLATE = JSON.stringify(
+  {
+    users: {
+      __fakerArray: {
+        min: 2,
+        max: 5,
+        item: {
+          firstName: '{{faker.person.firstName}}',
+          email: '{{faker.internet.email}}',
+        },
+      },
+    },
+  },
+  null,
+  2
+);
+
+const FAKER_ARRAY_EXAMPLE = FAKER_ARRAY_TEMPLATE;
+
+const JSON_FAKER_PLACEHOLDER =
+  '{"firstName":"{{faker.person.firstName}}","email":"{{faker.internet.email}}","phone":"{{faker.phone.number}}"}';
+
 const emptyRouteForm = (): RouteFormState => ({
-  path: '/',
+  path: '/api/users',
   method: 'GET',
   statusCode: 200,
   responseType: 'json',
-  responseBody: '{"ok":true}',
+  responseBody: FAKER_ARRAY_TEMPLATE,
 });
 
 export function ApiDetail() {
@@ -44,6 +75,7 @@ export function ApiDetail() {
   const [showRouteForm, setShowRouteForm] = useState(false);
   const [routeForm, setRouteForm] = useState<RouteFormState>(emptyRouteForm);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm>(null);
+  const [previewBody, setPreviewBody] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
   const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5500';
@@ -99,6 +131,10 @@ export function ApiDetail() {
         projectId: projectId!,
         apiId: apiId!,
       }),
+  });
+
+  const previewMutation = trpc.mockApi.routes.preview.useMutation({
+    onSuccess: (data) => setPreviewBody(data.resolvedBody),
   });
 
   useEffect(() => {
@@ -311,18 +347,87 @@ export function ApiDetail() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="responseBody">Mock response body</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="responseBody">Mock response body</Label>
+                  <div className="flex gap-2">
+                    {routeForm.responseType === 'json' ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPreviewBody(null);
+                          setRouteForm((f) => ({
+                            ...f,
+                            responseType: 'json',
+                            responseBody: FAKER_ARRAY_TEMPLATE,
+                          }));
+                        }}
+                      >
+                        Insert array template
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        void previewMutation.mutateAsync({
+                          teamId,
+                          projectId,
+                          responseType: routeForm.responseType,
+                          responseBody: routeForm.responseBody,
+                        })
+                      }
+                      disabled={previewMutation.isPending}
+                    >
+                      {previewMutation.isPending ? 'Previewing…' : 'Preview'}
+                    </Button>
+                  </div>
+                </div>
                 <textarea
                   id="responseBody"
                   className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
                   value={routeForm.responseBody}
-                  onChange={(e) => setRouteForm((f) => ({ ...f, responseBody: e.target.value }))}
+                  onChange={(e) => {
+                    setPreviewBody(null);
+                    setRouteForm((f) => ({ ...f, responseBody: e.target.value }));
+                  }}
                   placeholder={
                     routeForm.responseType === 'json'
-                      ? '{"id":1,"name":"Ada"}'
-                      : 'foo=bar&baz=1'
+                      ? JSON_FAKER_PLACEHOLDER
+                      : 'name={{faker.person.firstName}}&email={{faker.internet.email}}'
                   }
                 />
+                <p className="text-xs text-muted-foreground">
+                  Use template strings like{' '}
+                  <code className="text-xs">{'{{faker.*}}'}</code> in your response body — they
+                  resolve with randomized data on every mock request. Wrap an object in{' '}
+                  <code className="text-xs">__fakerArray</code> with <code className="text-xs">min</code>
+                  , <code className="text-xs">max</code>, and <code className="text-xs">item</code>{' '}
+                  to generate a random-length array (2–5 items in the example below).
+                </p>
+                <pre className="text-xs rounded-md border bg-muted/30 p-2 overflow-x-auto font-mono whitespace-pre-wrap text-muted-foreground">
+                  {FAKER_ARRAY_EXAMPLE}
+                </pre>
+                <ul className="text-xs text-muted-foreground list-disc list-inside space-y-0.5">
+                  {FAKER_EXAMPLES.map((token) => (
+                    <li key={token}>
+                      <code className="text-xs">{token}</code>
+                    </li>
+                  ))}
+                </ul>
+                {previewMutation.isError ? (
+                  <p className="text-sm text-destructive">{previewMutation.error.message}</p>
+                ) : null}
+                {previewBody !== null ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Preview output</p>
+                    <pre className="text-xs rounded-md border bg-muted/50 p-3 overflow-x-auto font-mono whitespace-pre-wrap">
+                      {previewBody}
+                    </pre>
+                  </div>
+                ) : null}
               </div>
               <Button
                 onClick={() => void saveRoute()}

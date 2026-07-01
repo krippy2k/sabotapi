@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import type { DatabaseConnection } from './db';
 import { apiRoutes, projectApis, type ApiRoute } from '../schema/mocks';
+import { resolveResponseBody } from './faker-templates';
 import { extractMockPath } from './mock-validation';
 
 export function getContentTypeForResponse(responseType: ApiRoute['response_type']): string {
@@ -38,7 +39,9 @@ export function buildMockResponse(route: ApiRoute): Response {
     'Content-Type': getContentTypeForResponse(route.response_type),
   });
 
-  return new Response(route.response_body, {
+  const body = resolveResponseBody(route.response_type, route.response_body);
+
+  return new Response(body, {
     status: route.status_code,
     headers,
   });

@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import type { HttpMethod, ResponseType } from '../schema/mocks';
 import { httpMethodValues, responseTypeValues } from '../schema/mocks';
+import { extractFakerTokens, stripTemplatesForValidation, validateFakerArrayStructures } from './faker-templates';
 
 export function normalizeRoutePath(path: string): string {
   let normalized = path.trim();
@@ -18,21 +19,41 @@ export function normalizeRoutePath(path: string): string {
 }
 
 export function validateResponseBody(responseType: ResponseType, responseBody: string): void {
+  const invalidTokens = extractFakerTokens(responseBody).filter((t) => !t.startsWith('faker.'));
+  if (invalidTokens.length > 0) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `Invalid template tokens (must start with faker.): ${invalidTokens.map((t) => `{{${t}}}`).join(', ')}`,
+    });
+  }
+
+  const stripped = stripTemplatesForValidation(responseBody, responseType);
+
   if (responseType === 'json') {
+    let parsed: unknown;
     try {
-      JSON.parse(responseBody);
+      parsed = JSON.parse(stripped);
     } catch {
       throw new TRPCError({ code: 'BAD_REQUEST', message: 'Response body must be valid JSON' });
+    }
+
+    try {
+      validateFakerArrayStructures(parsed);
+    } catch (err) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: err instanceof Error ? err.message : 'Invalid faker array configuration',
+      });
     }
     return;
   }
 
   if (responseType === 'url_encoded') {
-    if (responseBody.trim() === '') {
+    if (stripped.trim() === '') {
       return;
     }
     try {
-      new URLSearchParams(responseBody);
+      new URLSearchParams(stripped);
     } catch {
       throw new TRPCError({
         code: 'BAD_REQUEST',

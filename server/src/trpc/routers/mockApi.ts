@@ -5,6 +5,7 @@ import {
   apiRouteCreateSchema,
   apiRouteIdSchema,
   apiRouteListSchema,
+  apiRoutePreviewSchema,
   apiRouteSelectSchema,
   apiRouteUpdateSchema,
   projectApiCreateSchema,
@@ -13,7 +14,8 @@ import {
   projectApiSelectSchema,
   projectApiUpdateSchema,
 } from '../../schema/zod';
-import { normalizeRoutePath } from '../../lib/mock-validation';
+import { resolveResponseBody } from '../../lib/faker-templates';
+import { normalizeRoutePath, validateResponseBody } from '../../lib/mock-validation';
 import { requireProjectAccess, requireProjectInTeam } from '../../lib/project-auth';
 import { protectedProcedure, router } from '../init';
 
@@ -160,6 +162,14 @@ export const mockApiRouter = router({
 
       await ctx.db.delete(apiRoutes).where(eq(apiRoutes.id, input.routeId));
       return { ok: true as const };
+    }),
+
+    preview: protectedProcedure.input(apiRoutePreviewSchema).mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.db, input.teamId, input.projectId, ctx.user.id);
+
+      validateResponseBody(input.responseType, input.responseBody);
+      const resolvedBody = resolveResponseBody(input.responseType, input.responseBody);
+      return { resolvedBody };
     }),
   }),
 });

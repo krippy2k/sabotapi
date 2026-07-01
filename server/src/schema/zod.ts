@@ -9,6 +9,7 @@ import {
   projectApis,
   responseTypeValues,
 } from './mocks';
+import { validateResponseBody } from '../lib/mock-validation';
 
 /** User row shape for tRPC/JSON responses (timestamps as ISO strings). */
 export const userSelectSchema = createSelectSchema(users).transform((row) => ({
@@ -147,11 +148,7 @@ export const apiRouteSelectSchema = createSelectSchema(apiRoutes).transform((row
 }));
 
 const responseBodyRefine = (data: { responseType: string; responseBody: string }) => {
-  if (data.responseType === 'json') {
-    JSON.parse(data.responseBody);
-  } else if (data.responseType === 'url_encoded' && data.responseBody.trim() !== '') {
-    new URLSearchParams(data.responseBody);
-  }
+  validateResponseBody(data.responseType as (typeof responseTypeValues)[number], data.responseBody);
 };
 
 const routeFieldsSchema = z.object({
@@ -191,13 +188,10 @@ export const apiRouteCreateSchema = projectApiIdSchema
         responseType: data.responseType,
         responseBody: data.responseBody,
       });
-    } catch {
+    } catch (err) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message:
-          data.responseType === 'json'
-            ? 'Response body must be valid JSON'
-            : 'Response body must be valid URL-encoded form data',
+        message: err instanceof Error ? err.message : 'Invalid response body',
         path: ['responseBody'],
       });
     }
@@ -212,13 +206,10 @@ export const apiRouteUpdateSchema = projectApiIdSchema
         responseType: data.responseType,
         responseBody: data.responseBody,
       });
-    } catch {
+    } catch (err) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message:
-          data.responseType === 'json'
-            ? 'Response body must be valid JSON'
-            : 'Response body must be valid URL-encoded form data',
+        message: err instanceof Error ? err.message : 'Invalid response body',
         path: ['responseBody'],
       });
     }
@@ -232,6 +223,28 @@ export const apiRouteIdSchema = z.object({
 });
 
 export const apiRouteListSchema = projectApiIdSchema;
+
+export const apiRoutePreviewSchema = z
+  .object({
+    teamId: z.string().uuid(),
+    projectId: z.string().uuid(),
+    responseType: responseTypeSchema,
+    responseBody: z.string(),
+  })
+  .superRefine((data, ctx) => {
+    try {
+      responseBodyRefine({
+        responseType: data.responseType,
+        responseBody: data.responseBody,
+      });
+    } catch (err) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: err instanceof Error ? err.message : 'Invalid response body',
+        path: ['responseBody'],
+      });
+    }
+  });
 
 export type ProjectApiSelect = z.infer<typeof projectApiSelectSchema>;
 export type ApiRouteSelect = z.infer<typeof apiRouteSelectSchema>;

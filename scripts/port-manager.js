@@ -1,10 +1,45 @@
 import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs';
+import net from 'net';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import getPort from 'get-port';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * @param {number} port
+ * @returns {Promise<boolean>}
+ */
+export function isPortListening(port) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ port, host: '127.0.0.1' });
+    socket.setTimeout(500);
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once('error', () => resolve(false));
+  });
+}
+
+/**
+ * If embedded PostgreSQL is already running, return its port block base (e.g. 5500 for postgres on 5502).
+ * @returns {Promise<number|null>}
+ */
+async function detectEmbeddedPostgresBasePort() {
+  for (let basePort = 5500; basePort < 10000; basePort += 100) {
+    const postgresPort = basePort + 2;
+    if (await isPortListening(postgresPort)) {
+      return basePort;
+    }
+  }
+  return null;
+}
 
 /**
  * Finds a clean block of 5 consecutive available ports starting from base port 5500
@@ -18,6 +53,18 @@ export async function getAvailablePorts() {
     firebaseAuth: 5503,
     firebaseUI: 5504
   };
+
+  const existingBase = await detectEmbeddedPostgresBasePort();
+  if (existingBase !== null) {
+    console.log(`♻️  Reusing embedded PostgreSQL on port ${existingBase + 2}`);
+    return {
+      backend: existingBase,
+      frontend: existingBase + 1,
+      postgres: existingBase + 2,
+      firebaseAuth: existingBase + 3,
+      firebaseUI: existingBase + 4,
+    };
+  }
 
   let basePort = 5500;
 
@@ -224,6 +271,71 @@ export function updateServerEnvWithPorts(availablePorts, useWrangler) {
     return null;
   } catch (error) {
     console.error('⚠️ Warning: Could not update server .env file:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Updates ui/.env.local with dynamic port configuration for standalone Vite runs.
+ * @param {Object} availablePorts - Object with port assignments
+ * @param {boolean} useWrangler - Whether running in Wrangler mode
+ * @returns {Object|null} Original env state for restoration, or null if no changes made
+ */
+export function updateUiEnvWithPorts(availablePorts, useWrangler) {
+  if (useWrangler) {
+    return null;
+  }
+
+  const envPath = path.join(__dirname, '../ui/.env.local');
+  if (!existsSync(envPath)) {
+    return null;
+  }
+
+  try {
+    const content = readFileSync(envPath, 'utf-8');
+    let updatedContent = content;
+    let hasChanges = false;
+    const changesTracked = {
+      path: envPath,
+      modifications: [],
+    };
+
+    const apiLine = `VITE_API_URL=http://localhost:${availablePorts.backend}`;
+    const originalApiLine = content.match(/VITE_API_URL=.+/)?.[0];
+    if (originalApiLine && originalApiLine !== apiLine) {
+      updatedContent = updatedContent.replace(/VITE_API_URL=.+/, apiLine);
+      hasChanges = true;
+      changesTracked.modifications.push({
+        type: 'replace',
+        original: originalApiLine,
+        modified: apiLine,
+      });
+      console.log(`📝 Updated UI API URL to port ${availablePorts.backend}`);
+    }
+
+    const firebasePortLine = `VITE_FIREBASE_AUTH_EMULATOR_PORT=${availablePorts.firebaseAuth}`;
+    const originalFirebasePortLine = content.match(/VITE_FIREBASE_AUTH_EMULATOR_PORT=.+/)?.[0];
+    if (originalFirebasePortLine && originalFirebasePortLine !== firebasePortLine) {
+      updatedContent = updatedContent.replace(
+        /VITE_FIREBASE_AUTH_EMULATOR_PORT=\d+/,
+        firebasePortLine
+      );
+      hasChanges = true;
+      changesTracked.modifications.push({
+        type: 'replace',
+        original: originalFirebasePortLine,
+        modified: firebasePortLine,
+      });
+    }
+
+    if (hasChanges && updatedContent !== content) {
+      writeFileSync(envPath, updatedContent);
+      return changesTracked;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('⚠️ Warning: Could not update ui/.env.local file:', error.message);
     return null;
   }
 }

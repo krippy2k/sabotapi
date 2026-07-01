@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { users } from '../../schema/users';
+import { projectMembers, projects } from '../../schema/projects';
 import { teamMembers, teams } from '../../schema/teams';
 import {
   memberRemoveSchema,
@@ -167,6 +168,23 @@ export const teamRouter = router({
             message: 'Cannot remove the last admin. Promote another member first.',
           });
         }
+      }
+
+      const teamProjects = await ctx.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.team_id, input.teamId));
+
+      const projectIds = teamProjects.map((p) => p.id);
+      if (projectIds.length > 0) {
+        await ctx.db
+          .delete(projectMembers)
+          .where(
+            and(
+              eq(projectMembers.user_id, input.userId),
+              inArray(projectMembers.project_id, projectIds)
+            )
+          );
       }
 
       await ctx.db.delete(teamMembers).where(eq(teamMembers.id, target.id));

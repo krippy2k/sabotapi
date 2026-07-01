@@ -82,6 +82,11 @@ export function AcceptInvite() {
           <p className="text-sm text-muted-foreground">
             Invite sent to <strong>{preview.email}</strong>
           </p>
+          {preview.projects.length > 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Projects: {preview.projects.map((p) => p.name).join(', ')}
+            </p>
+          ) : null}
 
           {accepted ? (
             <p className="text-sm text-green-600">Joined! Redirecting…</p>

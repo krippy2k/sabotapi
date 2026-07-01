@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull } from 'drizzle-orm';
 import { users } from '../../schema/users';
+import { projects, teamInviteProjects } from '../../schema/projects';
 import { teamInvites, teamMembers, teams } from '../../schema/teams';
 import {
   inviteCreateSchema,
@@ -9,6 +10,7 @@ import {
   teamInviteSelectSchema,
   teamSelectSchema,
 } from '../../schema/zod';
+import { applyInviteProjectAssignments } from '../../lib/project-auth';
 import { requireAdmin } from '../../lib/team-auth';
 import { publicProcedure, verifiedProcedure, router } from '../init';
 
@@ -46,11 +48,49 @@ async function loadValidInvite(db: Parameters<typeof requireAdmin>[0], token: st
   return invite;
 }
 
+async function validateInviteProjectIds(
+  db: Parameters<typeof requireAdmin>[0],
+  teamId: string,
+  projectIds: string[]
+) {
+  if (projectIds.length === 0) return;
+
+  const rows = await db
+    .select()
+    .from(projects)
+    .where(inArray(projects.id, projectIds));
+
+  if (rows.length !== projectIds.length) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'One or more projects not found' });
+  }
+
+  for (const project of rows) {
+    if (project.team_id !== teamId) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'All projects must belong to the same team',
+      });
+    }
+  }
+}
+
+async function getInviteProjects(db: Parameters<typeof requireAdmin>[0], inviteId: string) {
+  return db
+    .select({
+      id: projects.id,
+      name: projects.name,
+    })
+    .from(teamInviteProjects)
+    .innerJoin(projects, eq(teamInviteProjects.project_id, projects.id))
+    .where(eq(teamInviteProjects.invite_id, inviteId));
+}
+
 export const inviteRouter = router({
   create: verifiedProcedure.input(inviteCreateSchema).mutation(async ({ ctx, input }) => {
     await requireAdmin(ctx.db, input.teamId, ctx.user.id);
 
     const email = normalizeEmail(input.email);
+    const projectIds = input.projectIds ?? [];
 
     const [existingMember] = await ctx.db
       .select({ user_id: teamMembers.user_id })
@@ -65,6 +105,8 @@ export const inviteRouter = router({
         message: 'This user is already a member of the team',
       });
     }
+
+    await validateInviteProjectIds(ctx.db, input.teamId, projectIds);
 
     await ctx.db
       .delete(teamInvites)
@@ -91,10 +133,22 @@ export const inviteRouter = router({
       })
       .returning();
 
+    if (projectIds.length > 0) {
+      await ctx.db.insert(teamInviteProjects).values(
+        projectIds.map((projectId) => ({
+          invite_id: invite.id,
+          project_id: projectId,
+        }))
+      );
+    }
+
     const parsed = teamInviteSelectSchema.parse(invite);
+    const assignedProjects = await getInviteProjects(ctx.db, invite.id);
+
     return {
       ...parsed,
       acceptPath: `/invite/${invite.token}`,
+      projects: assignedProjects,
     };
   }),
 
@@ -113,7 +167,18 @@ export const inviteRouter = router({
         )
       );
 
-    return rows.map((row) => teamInviteSelectSchema.parse(row));
+    const invites = await Promise.all(
+      rows.map(async (row) => {
+        const parsed = teamInviteSelectSchema.parse(row);
+        const assignedProjects = await getInviteProjects(ctx.db, row.id);
+        return {
+          ...parsed,
+          projects: assignedProjects,
+        };
+      })
+    );
+
+    return invites;
   }),
 
   revoke: verifiedProcedure.input(inviteRevokeSchema).mutation(async ({ ctx, input }) => {
@@ -141,11 +206,14 @@ export const inviteRouter = router({
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Team not found' });
     }
 
+    const assignedProjects = await getInviteProjects(ctx.db, invite.id);
+
     return {
       teamName: team.name,
       email: invite.email,
       role: invite.role,
       expires_at: invite.expires_at.toISOString(),
+      projects: assignedProjects,
     };
   }),
 
@@ -167,6 +235,7 @@ export const inviteRouter = router({
       .limit(1);
 
     if (existingMember) {
+      await applyInviteProjectAssignments(ctx.db, invite.id, ctx.user.id);
       await ctx.db
         .update(teamInvites)
         .set({ accepted_at: new Date() })
@@ -179,6 +248,8 @@ export const inviteRouter = router({
       user_id: ctx.user.id,
       role: invite.role,
     });
+
+    await applyInviteProjectAssignments(ctx.db, invite.id, ctx.user.id);
 
     await ctx.db
       .update(teamInvites)

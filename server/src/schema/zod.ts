@@ -2,6 +2,7 @@ import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 import { z } from 'zod';
 import { users } from './users';
 import { teamInvites, teamMembers, teamRoleValues, teams } from './teams';
+import { projectMembers, projects } from './projects';
 
 /** User row shape for tRPC/JSON responses (timestamps as ISO strings). */
 export const userSelectSchema = createSelectSchema(users).transform((row) => ({
@@ -56,6 +57,46 @@ export const inviteCreateSchema = z.object({
   teamId: z.string().uuid(),
   email: z.string().email(),
   role: teamRoleSchema,
+  projectIds: z.array(z.string().uuid()).optional().default([]),
+});
+
+export const projectSelectSchema = createSelectSchema(projects).transform((row) => ({
+  ...row,
+  created_at: row.created_at.toISOString(),
+  updated_at: row.updated_at.toISOString(),
+}));
+
+export const projectMemberSelectSchema = createSelectSchema(projectMembers).transform((row) => ({
+  ...row,
+  created_at: row.created_at.toISOString(),
+}));
+
+export const projectCreateSchema = z.object({
+  teamId: z.string().uuid(),
+  name: z.string().min(1).max(100),
+});
+
+export const projectUpdateSchema = z.object({
+  teamId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  name: z.string().min(1).max(100),
+});
+
+export const projectIdSchema = z.object({
+  teamId: z.string().uuid(),
+  projectId: z.string().uuid(),
+});
+
+export const projectMemberAddSchema = z.object({
+  teamId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  userId: z.string().min(1),
+});
+
+export const projectMemberRemoveSchema = z.object({
+  teamId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  userId: z.string().min(1),
 });
 
 export const inviteRevokeSchema = z.object({
@@ -81,3 +122,5 @@ export const memberRemoveSchema = z.object({
 export type TeamSelect = z.infer<typeof teamSelectSchema>;
 export type TeamMemberSelect = z.infer<typeof teamMemberSelectSchema>;
 export type TeamInviteSelect = z.infer<typeof teamInviteSelectSchema>;
+export type ProjectSelect = z.infer<typeof projectSelectSchema>;
+export type ProjectMemberSelect = z.infer<typeof projectMemberSelectSchema>;

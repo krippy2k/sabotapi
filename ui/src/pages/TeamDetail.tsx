@@ -7,14 +7,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Copy, Trash2 } from 'lucide-react';
+import { ArrowLeft, Copy, FolderKanban, Trash2 } from 'lucide-react';
 
 export function TeamDetail() {
   const { teamId } = useParams<{ teamId: string }>();
   const { refetchTeams } = useTeam();
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'admin' | 'user'>('user');
+  const [inviteProjectIds, setInviteProjectIds] = useState<string[]>([]);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState('');
+  const [showProjectForm, setShowProjectForm] = useState(false);
 
   const utils = trpc.useUtils();
 
@@ -28,10 +31,24 @@ export function TeamDetail() {
     { enabled: !!teamId && teamQuery.data?.callerRole === 'admin' }
   );
 
+  const projectsQuery = trpc.project.list.useQuery(
+    { teamId: teamId! },
+    { enabled: !!teamId }
+  );
+
+  const createProjectMutation = trpc.project.create.useMutation({
+    onSuccess: () => {
+      void utils.project.list.invalidate({ teamId: teamId! });
+      setProjectName('');
+      setShowProjectForm(false);
+    },
+  });
+
   const createInviteMutation = trpc.invite.create.useMutation({
     onSuccess: (data) => {
       setLastInviteLink(`${window.location.origin}${data.acceptPath}`);
       setInviteEmail('');
+      setInviteProjectIds([]);
       void utils.invite.list.invalidate({ teamId: teamId! });
     },
   });
@@ -79,6 +96,12 @@ export function TeamDetail() {
   const copyInviteLink = async () => {
     if (!lastInviteLink) return;
     await navigator.clipboard.writeText(lastInviteLink);
+  };
+
+  const toggleInviteProject = (projectId: string) => {
+    setInviteProjectIds((prev) =>
+      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId]
+    );
   };
 
   return (
@@ -155,6 +178,71 @@ export function TeamDetail() {
         </CardContent>
       </Card>
 
+      <Separator className="my-6" />
+
+      <Card className="mb-6">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <FolderKanban className="w-5 h-5" />
+              Projects
+            </CardTitle>
+            <CardDescription>Projects within this team</CardDescription>
+          </div>
+          {isAdmin ? (
+            <Button variant="outline" size="sm" onClick={() => setShowProjectForm((v) => !v)}>
+              New project
+            </Button>
+          ) : null}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isAdmin && showProjectForm ? (
+            <div className="flex gap-2">
+              <Input
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                placeholder="Project name"
+              />
+              <Button
+                onClick={() =>
+                  void createProjectMutation.mutateAsync({ teamId, name: projectName })
+                }
+                disabled={!projectName.trim() || createProjectMutation.isPending}
+              >
+                Create
+              </Button>
+            </div>
+          ) : null}
+          {createProjectMutation.isError ? (
+            <p className="text-sm text-destructive">{createProjectMutation.error.message}</p>
+          ) : null}
+          {projectsQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading projects…</p>
+          ) : !projectsQuery.data?.length ? (
+            <p className="text-sm text-muted-foreground">No projects yet</p>
+          ) : (
+            <div className="space-y-2">
+              {projectsQuery.data.map((project) => (
+                <div
+                  key={project.id}
+                  className="flex items-center justify-between py-2 border-b last:border-0"
+                >
+                  <Link
+                    to={`/teams/${teamId}/projects/${project.id}`}
+                    className="font-medium hover:underline"
+                  >
+                    {project.name}
+                  </Link>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to={`/teams/${teamId}/projects/${project.id}`}>Open</Link>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {isAdmin ? (
         <>
           <Separator className="my-6" />
@@ -190,6 +278,24 @@ export function TeamDetail() {
                   </select>
                 </div>
               </div>
+              {(projectsQuery.data?.length ?? 0) > 0 ? (
+                <div className="space-y-2">
+                  <Label>Assign to projects initially</Label>
+                  <div className="rounded-md border p-3 space-y-2 max-h-40 overflow-y-auto">
+                    {projectsQuery.data?.map((project) => (
+                      <label key={project.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={inviteProjectIds.includes(project.id)}
+                          onChange={() => toggleInviteProject(project.id)}
+                          className="rounded border-input"
+                        />
+                        {project.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {createInviteMutation.isError ? (
                 <p className="text-sm text-destructive">{createInviteMutation.error.message}</p>
               ) : null}
@@ -199,6 +305,7 @@ export function TeamDetail() {
                     teamId,
                     email: inviteEmail,
                     role: inviteRole,
+                    projectIds: inviteProjectIds,
                   })
                 }
                 disabled={!inviteEmail.trim() || createInviteMutation.isPending}
@@ -236,6 +343,9 @@ export function TeamDetail() {
                         <p className="text-sm font-medium">{invite.email}</p>
                         <p className="text-xs text-muted-foreground capitalize">
                           {invite.role} · expires {new Date(invite.expires_at).toLocaleDateString()}
+                          {invite.projects.length > 0
+                            ? ` · ${invite.projects.map((p) => p.name).join(', ')}`
+                            : ''}
                         </p>
                       </div>
                       <Button

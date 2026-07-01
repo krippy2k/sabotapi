@@ -1,0 +1,14 @@
+packages:
+  - 'server'
+  - 'database-server'
+  - 'ui'
+allowBuilds:
+  '@embedded-postgres/windows-x64': true
+  '@firebase/util': true
+  '@tailwindcss/oxide': true
+  es5-ext: true
+  esbuild: true
+  protobufjs: true
+  re2: true
+  sharp: true
+  workerd: true

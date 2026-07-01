@@ -41,6 +41,16 @@ async function detectEmbeddedPostgresBasePort() {
   return null;
 }
 
+async function detectFirebaseAuthPort() {
+  for (let basePort = 5500; basePort < 10000; basePort += 100) {
+    const port = basePort + 3;
+    if (await isPortListening(port)) {
+      return { port, basePort };
+    }
+  }
+  return null;
+}
+
 /**
  * Finds a clean block of 5 consecutive available ports starting from base port 5500
  * @returns {Promise<Object>} Object with service names mapped to available ports
@@ -55,15 +65,30 @@ export async function getAvailablePorts() {
   };
 
   const existingBase = await detectEmbeddedPostgresBasePort();
+  const existingFirebase = await detectFirebaseAuthPort();
+
   if (existingBase !== null) {
-    console.log(`♻️  Reusing embedded PostgreSQL on port ${existingBase + 2}`);
-    return {
+    const ports = {
       backend: existingBase,
       frontend: existingBase + 1,
       postgres: existingBase + 2,
       firebaseAuth: existingBase + 3,
       firebaseUI: existingBase + 4,
     };
+
+    if (existingFirebase && existingFirebase.basePort !== existingBase) {
+      console.warn(
+        `⚠️  Port mismatch: PostgreSQL on ${existingBase + 2}, Firebase Auth on ${existingFirebase.port}.`,
+        'Stop all dev servers (Ctrl+C) and run pnpm run dev again for a clean start.'
+      );
+      ports.firebaseAuth = existingFirebase.port;
+      ports.firebaseUI = existingFirebase.basePort + 4;
+    } else if (existingFirebase) {
+      console.log(`♻️  Reusing Firebase Auth emulator on port ${existingFirebase.port}`);
+    }
+
+    console.log(`♻️  Reusing embedded PostgreSQL on port ${existingBase + 2}`);
+    return ports;
   }
 
   let basePort = 5500;

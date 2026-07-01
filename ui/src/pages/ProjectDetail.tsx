@@ -6,12 +6,19 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+
+type PendingConfirm =
+  | { type: 'deleteProject' }
+  | { type: 'removeMember'; userId: string; name: string }
+  | null;
 
 export function ProjectDetail() {
   const { teamId, projectId } = useParams<{ teamId: string; projectId: string }>();
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [addUserId, setAddUserId] = useState('');
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm>(null);
 
   const utils = trpc.useUtils();
 
@@ -76,6 +83,42 @@ export function ProjectDetail() {
   const availableTeamMembers =
     teamQuery.data?.members.filter((m) => !projectMemberIds.has(m.user_id)) ?? [];
 
+  const memberDisplayName = (userId: string, displayName?: string | null, email?: string | null) =>
+    displayName ?? email ?? userId;
+
+  const handleConfirm = async () => {
+    if (!pendingConfirm || !teamId || !projectId) return;
+    if (pendingConfirm.type === 'deleteProject') {
+      await deleteMutation.mutateAsync({ teamId, projectId });
+    } else if (pendingConfirm.type === 'removeMember') {
+      await removeMemberMutation.mutateAsync({
+        teamId,
+        projectId,
+        userId: pendingConfirm.userId,
+      });
+    }
+  };
+
+  const confirmOpen = pendingConfirm !== null;
+  const confirmLoading =
+    pendingConfirm?.type === 'deleteProject'
+      ? deleteMutation.isPending
+      : removeMemberMutation.isPending;
+
+  let confirmTitle = '';
+  let confirmDescription = '';
+  let confirmLabel = 'Confirm';
+
+  if (pendingConfirm?.type === 'deleteProject') {
+    confirmTitle = 'Delete project?';
+    confirmDescription = `This will permanently delete "${project.name}" and remove all project members. This cannot be undone.`;
+    confirmLabel = 'Delete project';
+  } else if (pendingConfirm?.type === 'removeMember') {
+    confirmTitle = 'Remove from project?';
+    confirmDescription = `Remove ${pendingConfirm.name} from this project? They will remain a team member.`;
+    confirmLabel = 'Remove';
+  }
+
   return (
     <div className="container mx-auto p-6 max-w-4xl">
       <Button variant="ghost" size="sm" asChild className="mb-4 -ml-2">
@@ -109,7 +152,7 @@ export function ProjectDetail() {
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => void deleteMutation.mutateAsync({ teamId, projectId })}
+            onClick={() => setPendingConfirm({ type: 'deleteProject' })}
             disabled={deleteMutation.isPending}
           >
             Delete
@@ -171,10 +214,14 @@ export function ProjectDetail() {
                     variant="ghost"
                     size="icon"
                     onClick={() =>
-                      void removeMemberMutation.mutateAsync({
-                        teamId,
-                        projectId,
+                      setPendingConfirm({
+                        type: 'removeMember',
                         userId: member.user_id,
+                        name: memberDisplayName(
+                          member.user_id,
+                          member.display_name,
+                          member.email
+                        ),
                       })
                     }
                     disabled={removeMemberMutation.isPending}
@@ -197,6 +244,16 @@ export function ProjectDetail() {
           ) : null}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={(open) => !open && setPendingConfirm(null)}
+        title={confirmTitle}
+        description={confirmDescription}
+        confirmLabel={confirmLabel}
+        onConfirm={handleConfirm}
+        loading={confirmLoading}
+      />
     </div>
   );
 }

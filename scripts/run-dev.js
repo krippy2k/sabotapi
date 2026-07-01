@@ -242,6 +242,7 @@ async function startServices() {
     // Build commands based on configuration
     const commands = [];
     let postgresAlreadyRunning = false;
+    let firebaseAlreadyRunning = false;
 
     // Add database server if using local database (and not Wrangler mode)
     if (config.useLocalDatabase && !cliArgs.useWrangler) {
@@ -255,9 +256,14 @@ async function startServices() {
     
     // Add Firebase emulator if using local Firebase
     if (config.useLocalFirebase) {
-      commands.push(`"firebase emulators:start --only auth --project demo-project --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator"`);
-      // Add periodic backup script to prevent data loss during crashes
-      commands.push(`"node ./scripts/periodic-emulator-backup.js"`);
+      firebaseAlreadyRunning = await isPortListening(availablePorts.firebaseAuth);
+      if (firebaseAlreadyRunning) {
+        console.log(`♻️  Firebase Auth emulator already running on port ${availablePorts.firebaseAuth} — skipping emulator start`);
+        commands.push(`"node ./scripts/periodic-emulator-backup.js"`);
+      } else {
+        commands.push(`"firebase emulators:start --only auth --project demo-project --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator"`);
+        commands.push(`"node ./scripts/periodic-emulator-backup.js"`);
+      }
     }
     
     // Add backend server
@@ -310,9 +316,12 @@ async function startServices() {
       serviceColors.push('blue');
     }
     
-    if (config.useLocalFirebase) {
+    if (config.useLocalFirebase && !firebaseAlreadyRunning) {
       serviceNames.push('firebase');
       serviceColors.push('cyan');
+      serviceNames.push('backup');
+      serviceColors.push('yellow');
+    } else if (config.useLocalFirebase && firebaseAlreadyRunning) {
       serviceNames.push('backup');
       serviceColors.push('yellow');
     }
@@ -392,7 +401,7 @@ async function startServices() {
 
         // Check for startup completion
         const databaseReady = !config.useLocalDatabase || cliArgs.useWrangler || servicesStarted.has('database') || postgresAlreadyRunning;
-        const firebaseReady = !config.useLocalFirebase || (output.includes('All emulators ready!') || output.includes('✔  All emulators ready!'));
+        const firebaseReady = !config.useLocalFirebase || firebaseAlreadyRunning || (output.includes('All emulators ready!') || output.includes('✔  All emulators ready!'));
         const basicServicesReady = servicesStarted.has('server') && servicesStarted.has('frontend');
         
         const completionCondition = databaseReady && (config.useLocalFirebase ? firebaseReady : basicServicesReady);

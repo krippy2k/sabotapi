@@ -11,7 +11,7 @@ export const googleProvider = new GoogleAuthProvider();
 if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true') {
   try {
     const firebaseAuthPort = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_PORT || '5503';
-    const emulatorUrl = `http://localhost:${firebaseAuthPort}`;
+    const emulatorUrl = `http://127.0.0.1:${firebaseAuthPort}`;
     connectAuthEmulator(auth, emulatorUrl, { disableWarnings: true });
     console.log(`🧪 Connected to Firebase Auth emulator at ${emulatorUrl}`);
   } catch (error) {

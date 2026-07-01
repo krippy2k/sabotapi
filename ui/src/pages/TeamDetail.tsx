@@ -8,6 +8,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Copy, FolderKanban, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+
+type PendingConfirm =
+  | { type: 'removeMember'; userId: string; name: string }
+  | { type: 'revokeInvite'; inviteId: string; email: string }
+  | null;
 
 export function TeamDetail() {
   const { teamId } = useParams<{ teamId: string }>();
@@ -18,6 +24,7 @@ export function TeamDetail() {
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
   const [projectName, setProjectName] = useState('');
   const [showProjectForm, setShowProjectForm] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm>(null);
 
   const utils = trpc.useUtils();
 
@@ -104,6 +111,41 @@ export function TeamDetail() {
     );
   };
 
+  const memberDisplayName = (userId: string, displayName?: string | null, email?: string | null) =>
+    displayName ?? email ?? userId;
+
+  const handleConfirm = async () => {
+    if (!pendingConfirm || !teamId) return;
+    if (pendingConfirm.type === 'removeMember') {
+      await removeMemberMutation.mutateAsync({ teamId, userId: pendingConfirm.userId });
+    } else if (pendingConfirm.type === 'revokeInvite') {
+      await revokeInviteMutation.mutateAsync({
+        teamId,
+        inviteId: pendingConfirm.inviteId,
+      });
+    }
+  };
+
+  const confirmOpen = pendingConfirm !== null;
+  const confirmLoading =
+    pendingConfirm?.type === 'removeMember'
+      ? removeMemberMutation.isPending
+      : revokeInviteMutation.isPending;
+
+  let confirmTitle = '';
+  let confirmDescription = '';
+  let confirmLabel = 'Confirm';
+
+  if (pendingConfirm?.type === 'removeMember') {
+    confirmTitle = 'Remove team member?';
+    confirmDescription = `Remove ${pendingConfirm.name} from this team? They will lose access to all team projects.`;
+    confirmLabel = 'Remove member';
+  } else if (pendingConfirm?.type === 'revokeInvite') {
+    confirmTitle = 'Revoke invite?';
+    confirmDescription = `Revoke the invite for ${pendingConfirm.email}? They will no longer be able to use the invite link.`;
+    confirmLabel = 'Revoke invite';
+  }
+
   return (
     <div className="container mx-auto p-6 max-w-4xl">
       <Button variant="ghost" size="sm" asChild className="mb-4 -ml-2">
@@ -159,7 +201,15 @@ export function TeamDetail() {
                     variant="ghost"
                     size="icon"
                     onClick={() =>
-                      void removeMemberMutation.mutateAsync({ teamId, userId: member.user_id })
+                      setPendingConfirm({
+                        type: 'removeMember',
+                        userId: member.user_id,
+                        name: memberDisplayName(
+                          member.user_id,
+                          member.display_name,
+                          member.email
+                        ),
+                      })
                     }
                     disabled={removeMemberMutation.isPending}
                   >
@@ -352,9 +402,10 @@ export function TeamDetail() {
                         variant="ghost"
                         size="sm"
                         onClick={() =>
-                          void revokeInviteMutation.mutateAsync({
-                            teamId,
+                          setPendingConfirm({
+                            type: 'revokeInvite',
                             inviteId: invite.id,
+                            email: invite.email,
                           })
                         }
                         disabled={revokeInviteMutation.isPending}
@@ -369,6 +420,16 @@ export function TeamDetail() {
           </Card>
         </>
       ) : null}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={(open) => !open && setPendingConfirm(null)}
+        title={confirmTitle}
+        description={confirmDescription}
+        confirmLabel={confirmLabel}
+        onConfirm={handleConfirm}
+        loading={confirmLoading}
+      />
     </div>
   );
 }

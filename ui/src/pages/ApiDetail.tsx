@@ -11,6 +11,8 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { RouteRuleBuilder } from '@/components/route-rule-builder';
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
+const STORE_OPERATIONS = ['list', 'get', 'create', 'update', 'delete'] as const;
+const CREATE_COLLECTION_VALUE = '__create_new__';
 
 type PendingConfirm =
   | { type: 'deleteApi' }
@@ -24,6 +26,9 @@ type RouteFormState = {
   statusCode: number;
   responseType: 'json' | 'url_encoded';
   responseBody: string;
+  responseMode: 'static' | 'stateful';
+  storeCollectionId: string;
+  storeOperation: (typeof STORE_OPERATIONS)[number];
 };
 
 const FAKER_EXAMPLES = [
@@ -58,11 +63,14 @@ const JSON_FAKER_PLACEHOLDER =
   '{"firstName":"{{faker.person.firstName}}","email":"{{faker.internet.email}}","phone":"{{faker.phone.number}}"}';
 
 const emptyRouteForm = (): RouteFormState => ({
-  path: '/api/users',
+  path: '/users',
   method: 'GET',
   statusCode: 200,
   responseType: 'json',
-  responseBody: FAKER_ARRAY_TEMPLATE,
+  responseBody: '{{store}}',
+  responseMode: 'stateful',
+  storeCollectionId: '',
+  storeOperation: 'list',
 });
 
 export function ApiDetail() {
@@ -82,6 +90,9 @@ export function ApiDetail() {
   const [previewQuery, setPreviewQuery] = useState('status=pending');
   const [previewHeaders, setPreviewHeaders] = useState('Authorization: Bearer test');
   const [previewRequestBody, setPreviewRequestBody] = useState('');
+  const [showNewCollectionForm, setShowNewCollectionForm] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState('');
+  const [newCollectionIdField, setNewCollectionIdField] = useState('id');
 
   const utils = trpc.useUtils();
   const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5500';
@@ -99,6 +110,11 @@ export function ApiDetail() {
   const rulesForApiQuery = trpc.mockApi.rules.listForApi.useQuery(
     { teamId: teamId!, projectId: projectId!, apiId: apiId! },
     { enabled: !!teamId && !!projectId && !!apiId }
+  );
+
+  const collectionsQuery = trpc.mockApi.collections.list.useQuery(
+    { teamId: teamId!, projectId: projectId! },
+    { enabled: !!teamId && !!projectId }
   );
 
   const ruleCountByRoute = (rulesForApiQuery.data ?? []).reduce<Record<string, number>>(
@@ -157,6 +173,16 @@ export function ApiDetail() {
       setPreviewBody(data.resolvedBody);
       setPreviewStatus(data.statusCode);
       setPreviewMatchedRule(data.matchedRuleId);
+    },
+  });
+
+  const createCollectionMutation = trpc.mockApi.collections.create.useMutation({
+    onSuccess: (created) => {
+      void utils.mockApi.collections.list.invalidate({ teamId: teamId!, projectId: projectId! });
+      setShowNewCollectionForm(false);
+      setNewCollectionName('');
+      setNewCollectionIdField('id');
+      setRouteForm((f) => ({ ...f, storeCollectionId: created.id }));
     },
   });
 
@@ -233,6 +259,8 @@ export function ApiDetail() {
     setPreviewBody(null);
     setPreviewStatus(null);
     setPreviewMatchedRule(null);
+    setShowNewCollectionForm(false);
+    const isStateful = !!route.store_operation && !!route.store_collection_id;
     setRouteForm({
       routeId: route.id,
       path: route.path,
@@ -240,11 +268,15 @@ export function ApiDetail() {
       statusCode: route.status_code,
       responseType: route.response_type,
       responseBody: route.response_body,
+      responseMode: isStateful ? 'stateful' : 'static',
+      storeCollectionId: route.store_collection_id ?? '',
+      storeOperation: (route.store_operation ?? 'list') as RouteFormState['storeOperation'],
     });
     setShowRouteForm(true);
   };
 
   const saveRoute = async () => {
+    const isStateful = routeForm.responseMode === 'stateful';
     const payload = {
       teamId,
       projectId,
@@ -252,8 +284,10 @@ export function ApiDetail() {
       path: routeForm.path,
       method: routeForm.method,
       statusCode: routeForm.statusCode,
-      responseType: routeForm.responseType,
-      responseBody: routeForm.responseBody,
+      responseType: isStateful ? ('json' as const) : routeForm.responseType,
+      responseBody: isStateful ? routeForm.responseBody || '{{store}}' : routeForm.responseBody,
+      storeCollectionId: isStateful ? routeForm.storeCollectionId : null,
+      storeOperation: isStateful ? routeForm.storeOperation : null,
     };
 
     if (routeForm.routeId) {
@@ -348,6 +382,7 @@ export function ApiDetail() {
             size="sm"
             onClick={() => {
               setRouteForm(emptyRouteForm());
+              setShowNewCollectionForm(false);
               setShowRouteForm((v) => !v);
             }}
           >
@@ -388,6 +423,151 @@ export function ApiDetail() {
                   </select>
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="responseMode">Response mode</Label>
+                  <select
+                    id="responseMode"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={routeForm.responseMode}
+                    onChange={(e) => {
+                      const mode = e.target.value as 'static' | 'stateful';
+                      setRouteForm((f) => ({
+                        ...f,
+                        responseMode: mode,
+                        ...(mode === 'stateful'
+                          ? {
+                              responseType: 'json' as const,
+                              responseBody: f.responseBody || '{{store}}',
+                            }
+                          : {}),
+                      }));
+                    }}
+                  >
+                    <option value="static">Static (faker / fixed JSON)</option>
+                    <option value="stateful">Stateful (CRUD)</option>
+                  </select>
+                </div>
+                {routeForm.responseMode === 'stateful' ? (
+                  <>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="storeCollection">Collection</Label>
+                      <select
+                        id="storeCollection"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={
+                          showNewCollectionForm
+                            ? CREATE_COLLECTION_VALUE
+                            : routeForm.storeCollectionId
+                        }
+                        onChange={(e) => {
+                          if (e.target.value === CREATE_COLLECTION_VALUE) {
+                            setShowNewCollectionForm(true);
+                            return;
+                          }
+                          setShowNewCollectionForm(false);
+                          setRouteForm((f) => ({ ...f, storeCollectionId: e.target.value }));
+                        }}
+                      >
+                        <option value="">Select collection…</option>
+                        {collectionsQuery.data?.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                        <option value={CREATE_COLLECTION_VALUE}>+ Create new collection…</option>
+                      </select>
+                      {showNewCollectionForm ? (
+                        <div className="space-y-2 rounded-md border p-3 bg-muted/20">
+                          <div className="space-y-1">
+                            <Label htmlFor="newCollectionName" className="text-xs">
+                              Collection name
+                            </Label>
+                            <Input
+                              id="newCollectionName"
+                              value={newCollectionName}
+                              onChange={(e) => setNewCollectionName(e.target.value)}
+                              placeholder="users"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor="newCollectionIdField" className="text-xs">
+                              ID field
+                            </Label>
+                            <Input
+                              id="newCollectionIdField"
+                              value={newCollectionIdField}
+                              onChange={(e) => setNewCollectionIdField(e.target.value)}
+                              placeholder="id"
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() =>
+                                void createCollectionMutation.mutateAsync({
+                                  teamId,
+                                  projectId,
+                                  name: newCollectionName,
+                                  idField: newCollectionIdField,
+                                  initialData: '[]',
+                                })
+                              }
+                              disabled={
+                                !newCollectionName.trim() || createCollectionMutation.isPending
+                              }
+                            >
+                              {createCollectionMutation.isPending ? 'Creating…' : 'Create'}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setShowNewCollectionForm(false);
+                                setNewCollectionName('');
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                          {createCollectionMutation.isError ? (
+                            <p className="text-xs text-destructive">
+                              {createCollectionMutation.error.message}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="storeOperation">Store operation</Label>
+                      <select
+                        id="storeOperation"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={routeForm.storeOperation}
+                        onChange={(e) =>
+                          setRouteForm((f) => ({
+                            ...f,
+                            storeOperation: e.target.value as RouteFormState['storeOperation'],
+                          }))
+                        }
+                      >
+                        {STORE_OPERATIONS.map((op) => (
+                          <option key={op} value={op}>
+                            {op}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="md:col-span-2">
+                      <p className="text-xs text-muted-foreground">
+                        Use <code className="text-xs">:id</code> in the path for get/update/delete
+                        (e.g. <code className="text-xs">/users/:id</code>). List/create use
+                        collection paths like <code className="text-xs">/users</code>.
+                      </p>
+                    </div>
+                  </>
+                ) : null}
+                <div className="space-y-2">
                   <Label htmlFor="statusCode">Status code</Label>
                   <Input
                     id="statusCode"
@@ -404,6 +584,7 @@ export function ApiDetail() {
                     id="responseType"
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={routeForm.responseType}
+                    disabled={routeForm.responseMode === 'stateful'}
                     onChange={(e) =>
                       setRouteForm((f) => ({
                         ...f,
@@ -418,7 +599,11 @@ export function ApiDetail() {
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="responseBody">Mock response body</Label>
+                  <Label htmlFor="responseBody">
+                    {routeForm.responseMode === 'stateful'
+                      ? 'Response wrapper (optional)'
+                      : 'Mock response body'}
+                  </Label>
                   <div className="flex gap-2">
                     {routeForm.responseType === 'json' ? (
                       <Button
@@ -462,29 +647,40 @@ export function ApiDetail() {
                     setRouteForm((f) => ({ ...f, responseBody: e.target.value }));
                   }}
                   placeholder={
-                    routeForm.responseType === 'json'
-                      ? JSON_FAKER_PLACEHOLDER
-                      : 'name={{faker.person.firstName}}&email={{faker.internet.email}}'
+                    routeForm.responseMode === 'stateful'
+                      ? '{{store}} or {"data":{{store}}}'
+                      : routeForm.responseType === 'json'
+                        ? JSON_FAKER_PLACEHOLDER
+                        : 'name={{faker.person.firstName}}&email={{faker.internet.email}}'
                   }
                 />
-                <p className="text-xs text-muted-foreground">
-                  Use template strings like{' '}
-                  <code className="text-xs">{'{{faker.*}}'}</code> in your response body — they
-                  resolve with randomized data on every mock request. Wrap an object in{' '}
-                  <code className="text-xs">__fakerArray</code> with <code className="text-xs">min</code>
-                  , <code className="text-xs">max</code>, and <code className="text-xs">item</code>{' '}
-                  to generate a random-length array (2–5 items in the example below).
-                </p>
-                <pre className="text-xs rounded-md border bg-muted/30 p-2 overflow-x-auto font-mono whitespace-pre-wrap text-muted-foreground">
-                  {FAKER_ARRAY_EXAMPLE}
-                </pre>
-                <ul className="text-xs text-muted-foreground list-disc list-inside space-y-0.5">
-                  {FAKER_EXAMPLES.map((token) => (
-                    <li key={token}>
-                      <code className="text-xs">{token}</code>
-                    </li>
-                  ))}
-                </ul>
+                {routeForm.responseMode === 'stateful' ? (
+                  <p className="text-xs text-muted-foreground">
+                    Leave as <code className="text-xs">{'{{store}}'}</code> to return live collection
+                    data directly.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Use template strings like{' '}
+                      <code className="text-xs">{'{{faker.*}}'}</code> in your response body — they
+                      resolve with randomized data on every mock request. Wrap an object in{' '}
+                      <code className="text-xs">__fakerArray</code> with <code className="text-xs">min</code>
+                      , <code className="text-xs">max</code>, and <code className="text-xs">item</code>{' '}
+                      to generate a random-length array (2–5 items in the example below).
+                    </p>
+                    <pre className="text-xs rounded-md border bg-muted/30 p-2 overflow-x-auto font-mono whitespace-pre-wrap text-muted-foreground">
+                      {FAKER_ARRAY_EXAMPLE}
+                    </pre>
+                    <ul className="text-xs text-muted-foreground list-disc list-inside space-y-0.5">
+                      {FAKER_EXAMPLES.map((token) => (
+                        <li key={token}>
+                          <code className="text-xs">{token}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
                 <div className="space-y-2 rounded-md border p-3">
                   <p className="text-xs font-medium">Preview request context</p>
                   <div className="space-y-1">
@@ -586,6 +782,9 @@ export function ApiDetail() {
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {route.status_code} · {route.response_type}
+                      {route.store_operation
+                        ? ` · store:${route.store_operation}`
+                        : ''}
                       {(ruleCountByRoute[route.id] ?? 0) > 0
                         ? ` · ${ruleCountByRoute[route.id]} rule${ruleCountByRoute[route.id] === 1 ? '' : 's'}`
                         : ''}

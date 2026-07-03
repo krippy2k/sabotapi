@@ -31,6 +31,9 @@ export const conditionOperatorValues = [
 ] as const;
 export type ConditionOperator = (typeof conditionOperatorValues)[number];
 
+export const storeOperationValues = ['list', 'get', 'create', 'update', 'delete'] as const;
+export type StoreOperation = (typeof storeOperationValues)[number];
+
 export type RouteCondition = {
   source: ConditionSource;
   key: string;
@@ -48,6 +51,27 @@ export const projectApis = appSchema.table('project_apis', {
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const mockCollections = appSchema.table(
+  'mock_collections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    project_id: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    id_field: text('id_field').notNull().default('id'),
+    initial_data: text('initial_data').notNull().default('[]'),
+    created_at: timestamp('created_at').defaultNow().notNull(),
+    updated_at: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => ({
+    projectNameUnique: unique('mock_collections_project_name_unique').on(
+      table.project_id,
+      table.name
+    ),
+  })
+);
+
 export const apiRoutes = appSchema.table(
   'api_routes',
   {
@@ -60,6 +84,10 @@ export const apiRoutes = appSchema.table(
     status_code: integer('status_code').notNull().default(200),
     response_type: text('response_type').$type<ResponseType>().notNull(),
     response_body: text('response_body').notNull(),
+    store_collection_id: uuid('store_collection_id').references(() => mockCollections.id, {
+      onDelete: 'set null',
+    }),
+    store_operation: text('store_operation').$type<StoreOperation>(),
     created_at: timestamp('created_at').defaultNow().notNull(),
     updated_at: timestamp('updated_at').defaultNow().notNull(),
   },
@@ -89,5 +117,6 @@ export const apiRouteRules = appSchema.table('api_route_rules', {
 });
 
 export type ProjectApi = typeof projectApis.$inferSelect;
+export type MockCollection = typeof mockCollections.$inferSelect;
 export type ApiRoute = typeof apiRoutes.$inferSelect;
 export type ApiRouteRule = typeof apiRouteRules.$inferSelect;

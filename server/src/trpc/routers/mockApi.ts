@@ -1,6 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import { apiRouteRules, apiRoutes, projectApis } from '../../schema/mocks';
+import { apiRouteRules, apiRoutes, mockCollections, projectApis } from '../../schema/mocks';
 import {
   apiRouteCreateSchema,
   apiRouteIdSchema,
@@ -8,6 +8,12 @@ import {
   apiRoutePreviewSchema,
   apiRouteSelectSchema,
   apiRouteUpdateSchema,
+  mockCollectionCreateSchema,
+  mockCollectionIdSchema,
+  mockCollectionListSchema,
+  mockCollectionResetSchema,
+  mockCollectionSelectSchema,
+  mockCollectionUpdateSchema,
   projectApiCreateSchema,
   projectApiIdSchema,
   projectApiListSchema,
@@ -31,6 +37,11 @@ import {
   findRouteRules,
   routeToResponseConfig,
 } from '../../lib/mock-proxy';
+import {
+  deleteCollectionFile,
+  getCollectionSnapshot,
+  resetCollectionItems,
+} from '../../lib/mock-store';
 import { normalizeRoutePath, validateResponseBody } from '../../lib/mock-validation';
 import { requireProjectAccess, requireProjectInTeam } from '../../lib/project-auth';
 import { protectedProcedure, router } from '../init';
@@ -89,6 +100,24 @@ async function requireRuleInRoute(
   return rule;
 }
 
+async function requireCollectionInProject(
+  db: Parameters<typeof requireProjectInTeam>[0],
+  collectionId: string,
+  projectId: string
+) {
+  const [collection] = await db
+    .select()
+    .from(mockCollections)
+    .where(and(eq(mockCollections.id, collectionId), eq(mockCollections.project_id, projectId)))
+    .limit(1);
+
+  if (!collection) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Collection not found in this project' });
+  }
+
+  return collection;
+}
+
 export const mockApiRouter = router({
   apis: router({
     create: protectedProcedure.input(projectApiCreateSchema).mutation(async ({ ctx, input }) => {
@@ -145,6 +174,10 @@ export const mockApiRouter = router({
 
       const path = normalizeRoutePath(input.path);
 
+      if (input.storeCollectionId) {
+        await requireCollectionInProject(ctx.db, input.storeCollectionId, input.projectId);
+      }
+
       const [route] = await ctx.db
         .insert(apiRoutes)
         .values({
@@ -153,7 +186,9 @@ export const mockApiRouter = router({
           method: input.method,
           status_code: input.statusCode,
           response_type: input.responseType,
-          response_body: input.responseBody,
+          response_body: input.responseBody || '{{store}}',
+          store_collection_id: input.storeCollectionId ?? null,
+          store_operation: input.storeOperation ?? null,
         })
         .returning();
 
@@ -178,6 +213,10 @@ export const mockApiRouter = router({
 
       const path = normalizeRoutePath(input.path);
 
+      if (input.storeCollectionId) {
+        await requireCollectionInProject(ctx.db, input.storeCollectionId, input.projectId);
+      }
+
       const [route] = await ctx.db
         .update(apiRoutes)
         .set({
@@ -185,7 +224,9 @@ export const mockApiRouter = router({
           method: input.method,
           status_code: input.statusCode,
           response_type: input.responseType,
-          response_body: input.responseBody,
+          response_body: input.responseBody || '{{store}}',
+          store_collection_id: input.storeCollectionId ?? null,
+          store_operation: input.storeOperation ?? null,
           updated_at: new Date(),
         })
         .where(and(eq(apiRoutes.id, input.routeId), eq(apiRoutes.api_id, input.apiId)))
@@ -378,6 +419,94 @@ export const mockApiRouter = router({
 
       const rows = await findRouteRules(ctx.db, input.routeId);
       return rows.map((row) => routeRuleSelectSchema.parse(row));
+    }),
+  }),
+
+  collections: router({
+    list: protectedProcedure.input(mockCollectionListSchema).query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.db, input.teamId, input.projectId, ctx.user.id);
+
+      const rows = await ctx.db
+        .select()
+        .from(mockCollections)
+        .where(eq(mockCollections.project_id, input.projectId));
+
+      return rows.map((row) => mockCollectionSelectSchema.parse(row));
+    }),
+
+    create: protectedProcedure
+      .input(mockCollectionCreateSchema)
+      .mutation(async ({ ctx, input }) => {
+        await requireProjectAccess(ctx.db, input.teamId, input.projectId, ctx.user.id);
+
+        const [collection] = await ctx.db
+          .insert(mockCollections)
+          .values({
+            project_id: input.projectId,
+            name: input.name,
+            id_field: input.idField,
+            initial_data: input.initialData,
+          })
+          .returning();
+
+        return mockCollectionSelectSchema.parse(collection);
+      }),
+
+    update: protectedProcedure
+      .input(mockCollectionUpdateSchema)
+      .mutation(async ({ ctx, input }) => {
+        await requireProjectAccess(ctx.db, input.teamId, input.projectId, ctx.user.id);
+        await requireCollectionInProject(ctx.db, input.collectionId, input.projectId);
+
+        const [collection] = await ctx.db
+          .update(mockCollections)
+          .set({
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.idField !== undefined ? { id_field: input.idField } : {}),
+            ...(input.initialData !== undefined ? { initial_data: input.initialData } : {}),
+            updated_at: new Date(),
+          })
+          .where(eq(mockCollections.id, input.collectionId))
+          .returning();
+
+        return mockCollectionSelectSchema.parse(collection);
+      }),
+
+    delete: protectedProcedure.input(mockCollectionIdSchema).mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.db, input.teamId, input.projectId, ctx.user.id);
+      const collection = await requireCollectionInProject(
+        ctx.db,
+        input.collectionId,
+        input.projectId
+      );
+
+      await deleteCollectionFile(input.projectId, collection.name);
+      await ctx.db.delete(mockCollections).where(eq(mockCollections.id, input.collectionId));
+      return { ok: true as const };
+    }),
+
+    reset: protectedProcedure.input(mockCollectionResetSchema).mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.db, input.teamId, input.projectId, ctx.user.id);
+      const collection = await requireCollectionInProject(
+        ctx.db,
+        input.collectionId,
+        input.projectId
+      );
+
+      const items = await resetCollectionItems(input.projectId, collection);
+      return { items };
+    }),
+
+    snapshot: protectedProcedure.input(mockCollectionIdSchema).query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.db, input.teamId, input.projectId, ctx.user.id);
+      const collection = await requireCollectionInProject(
+        ctx.db,
+        input.collectionId,
+        input.projectId
+      );
+
+      const items = await getCollectionSnapshot(input.projectId, collection);
+      return { items, count: items.length };
     }),
   }),
 });

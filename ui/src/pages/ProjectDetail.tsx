@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Trash2, Webhook } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { MockCollectionPanel } from '@/components/mock-collection-panel';
 
 type PendingConfirm =
   | { type: 'deleteProject' }
@@ -262,6 +263,18 @@ export function ProjectDetail() {
       </Card>
 
       <Separator className="my-6" />
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Mock data stores</CardTitle>
+          <CardDescription>
+            Collections persist across requests — use with stateful CRUD routes
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <MockCollectionPanel teamId={teamId} projectId={projectId} />
+        </CardContent>
+      </Card>
 
       <Card className="mb-6">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">

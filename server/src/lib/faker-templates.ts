@@ -179,7 +179,29 @@ function resolveJsonValue(value: unknown): unknown {
   return resolveTemplatesInString(value);
 }
 
-export function resolveResponseBody(responseType: ResponseType, responseBody: string): string {
+export const STORE_TOKEN = '{{store}}';
+
+export function applyStoreToResponseBody(responseBody: string, storePayload: unknown): string {
+  const serialized = JSON.stringify(storePayload);
+  if (responseBody.trim() === STORE_TOKEN) {
+    return serialized;
+  }
+  return responseBody.replace(/\{\{store\}\}/g, serialized);
+}
+
+export function resolveResponseBody(
+  responseType: ResponseType,
+  responseBody: string,
+  storePayload?: unknown
+): string {
+  if (storePayload !== undefined && responseBody.includes('{{store}}')) {
+    const withStore = applyStoreToResponseBody(responseBody, storePayload);
+    if (responseType === 'json' && !withStore.includes('{{')) {
+      return withStore;
+    }
+    responseBody = withStore;
+  }
+
   if (!responseBody.includes('{{') && !responseBody.includes(FAKER_ARRAY_KEY)) {
     return responseBody;
   }

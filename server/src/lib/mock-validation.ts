@@ -19,7 +19,9 @@ export function normalizeRoutePath(path: string): string {
 }
 
 export function validateResponseBody(responseType: ResponseType, responseBody: string): void {
-  const invalidTokens = extractFakerTokens(responseBody).filter((t) => !t.startsWith('faker.'));
+  const invalidTokens = extractFakerTokens(responseBody).filter(
+    (t) => !t.startsWith('faker.') && t !== 'store'
+  );
   if (invalidTokens.length > 0) {
     throw new TRPCError({
       code: 'BAD_REQUEST',
@@ -27,7 +29,10 @@ export function validateResponseBody(responseType: ResponseType, responseBody: s
     });
   }
 
-  const stripped = stripTemplatesForValidation(responseBody, responseType);
+  const stripped = stripTemplatesForValidation(responseBody, responseType).replace(
+    /\{\{store\}\}/g,
+    responseType === 'json' ? '[]' : 'placeholder'
+  );
 
   if (responseType === 'json') {
     let parsed: unknown;

@@ -10,8 +10,10 @@ import {
   conditionSourceValues,
   httpMethodValues,
   matchModeValues,
+  mockCollections,
   projectApis,
   responseTypeValues,
+  storeOperationValues,
 } from './mocks';
 import { validateResponseBody } from '../lib/mock-validation';
 
@@ -138,6 +140,14 @@ export type ProjectMemberSelect = z.infer<typeof projectMemberSelectSchema>;
 
 const httpMethodSchema = z.enum(httpMethodValues);
 const responseTypeSchema = z.enum(responseTypeValues);
+const storeOperationSchema = z.enum(storeOperationValues);
+
+function validateInitialDataArray(initialData: string): void {
+  const parsed = JSON.parse(initialData) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error('initial_data must be a JSON array');
+  }
+}
 
 export const projectApiSelectSchema = createSelectSchema(projectApis).transform((row) => ({
   ...row,
@@ -161,7 +171,56 @@ const routeFieldsSchema = z.object({
   statusCode: z.number().int().min(100).max(599).optional().default(200),
   responseType: responseTypeSchema,
   responseBody: z.string(),
+  storeCollectionId: z.string().uuid().optional().nullable(),
+  storeOperation: storeOperationSchema.optional().nullable(),
 });
+
+const routeStoreRefine = (data: {
+  storeCollectionId?: string | null;
+  storeOperation?: string | null;
+  responseType: string;
+  responseBody: string;
+}, ctx: z.RefinementCtx) => {
+  const hasStore = !!data.storeOperation;
+  const hasCollection = !!data.storeCollectionId;
+
+  if (hasStore !== hasCollection) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'storeCollectionId and storeOperation must both be set for stateful routes',
+      path: ['storeOperation'],
+    });
+  }
+
+  if (hasStore && data.responseType !== 'json') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Stateful routes must use json response type',
+      path: ['responseType'],
+    });
+  }
+};
+
+const routeBodyRefine = (
+  data: { responseType: string; responseBody: string; storeOperation?: string | null },
+  ctx: z.RefinementCtx
+) => {
+  if (data.storeOperation && (data.responseBody === '{{store}}' || data.responseBody.trim() === '')) {
+    return;
+  }
+  try {
+    responseBodyRefine({
+      responseType: data.responseType,
+      responseBody: data.responseBody,
+    });
+  } catch (err) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: err instanceof Error ? err.message : 'Invalid response body',
+      path: ['responseBody'],
+    });
+  }
+};
 
 export const projectApiCreateSchema = z.object({
   teamId: z.string().uuid(),
@@ -187,36 +246,16 @@ export const projectApiListSchema = projectIdSchema;
 export const apiRouteCreateSchema = projectApiIdSchema
   .merge(routeFieldsSchema)
   .superRefine((data, ctx) => {
-    try {
-      responseBodyRefine({
-        responseType: data.responseType,
-        responseBody: data.responseBody,
-      });
-    } catch (err) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: err instanceof Error ? err.message : 'Invalid response body',
-        path: ['responseBody'],
-      });
-    }
+    routeStoreRefine(data, ctx);
+    routeBodyRefine(data, ctx);
   });
 
 export const apiRouteUpdateSchema = projectApiIdSchema
   .extend({ routeId: z.string().uuid() })
   .merge(routeFieldsSchema)
   .superRefine((data, ctx) => {
-    try {
-      responseBodyRefine({
-        responseType: data.responseType,
-        responseBody: data.responseBody,
-      });
-    } catch (err) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: err instanceof Error ? err.message : 'Invalid response body',
-        path: ['responseBody'],
-      });
-    }
+    routeStoreRefine(data, ctx);
+    routeBodyRefine(data, ctx);
   });
 
 export const apiRouteIdSchema = z.object({
@@ -346,6 +385,62 @@ export const routeRuleReorderSchema = apiRouteIdSchema.extend({
   ruleIds: z.array(z.string().uuid()).min(1),
 });
 
+export const mockCollectionSelectSchema = createSelectSchema(mockCollections).transform((row) => ({
+  ...row,
+  created_at: row.created_at.toISOString(),
+  updated_at: row.updated_at.toISOString(),
+}));
+
+export const mockCollectionListSchema = projectIdSchema;
+
+export const mockCollectionIdSchema = z.object({
+  teamId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  collectionId: z.string().uuid(),
+});
+
+export const mockCollectionCreateSchema = z
+  .object({
+    teamId: z.string().uuid(),
+    projectId: z.string().uuid(),
+    name: z.string().min(1).max(100),
+    idField: z.string().min(1).max(50).optional().default('id'),
+    initialData: z.string().optional().default('[]'),
+  })
+  .superRefine((data, ctx) => {
+    try {
+      validateInitialDataArray(data.initialData);
+    } catch (err) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: err instanceof Error ? err.message : 'Invalid initial data',
+        path: ['initialData'],
+      });
+    }
+  });
+
+export const mockCollectionUpdateSchema = mockCollectionIdSchema
+  .extend({
+    name: z.string().min(1).max(100).optional(),
+    idField: z.string().min(1).max(50).optional(),
+    initialData: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.initialData === undefined) return;
+    try {
+      validateInitialDataArray(data.initialData);
+    } catch (err) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: err instanceof Error ? err.message : 'Invalid initial data',
+        path: ['initialData'],
+      });
+    }
+  });
+
+export const mockCollectionResetSchema = mockCollectionIdSchema;
+
 export type ProjectApiSelect = z.infer<typeof projectApiSelectSchema>;
 export type ApiRouteSelect = z.infer<typeof apiRouteSelectSchema>;
 export type RouteRuleSelect = z.infer<typeof routeRuleSelectSchema>;
+export type MockCollectionSelect = z.infer<typeof mockCollectionSelectSchema>;

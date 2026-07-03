@@ -8,6 +8,8 @@ import {
   selectMatchingRule,
   type MockResponseConfig,
 } from './mock-matching';
+import { findMatchingRouteWithParams } from './mock-path-match';
+import { handleStoreRequest } from './mock-store';
 import { extractMockPath } from './mock-validation';
 
 export function getContentTypeForResponse(
@@ -18,28 +20,25 @@ export function getContentTypeForResponse(
     : 'application/x-www-form-urlencoded';
 }
 
-export async function findMatchingRoute(
+export async function findRoutesForMethod(
   db: DatabaseConnection,
   projectId: string,
-  method: string,
-  normalizedPath: string
-): Promise<ApiRoute | null> {
+  method: string
+): Promise<ApiRoute[]> {
   const upperMethod = method.toUpperCase();
 
-  const [row] = await db
+  const rows = await db
     .select({ route: apiRoutes })
     .from(apiRoutes)
     .innerJoin(projectApis, eq(apiRoutes.api_id, projectApis.id))
     .where(
       and(
         eq(projectApis.project_id, projectId),
-        eq(apiRoutes.method, upperMethod as ApiRoute['method']),
-        eq(apiRoutes.path, normalizedPath)
+        eq(apiRoutes.method, upperMethod as ApiRoute['method'])
       )
-    )
-    .limit(1);
+    );
 
-  return row?.route ?? null;
+  return rows.map((r) => r.route);
 }
 
 export async function findRouteRules(
@@ -53,12 +52,12 @@ export async function findRouteRules(
     .orderBy(asc(apiRouteRules.priority));
 }
 
-export function buildMockResponse(config: MockResponseConfig): Response {
+export function buildMockResponse(config: MockResponseConfig, storePayload?: unknown): Response {
   const headers = new Headers({
     'Content-Type': getContentTypeForResponse(config.response_type),
   });
 
-  const body = resolveResponseBody(config.response_type, config.response_body);
+  const body = resolveResponseBody(config.response_type, config.response_body, storePayload);
 
   return new Response(body, {
     status: config.status_code,
@@ -81,19 +80,28 @@ export async function handleMockRequest(
 ): Promise<Response> {
   const url = new URL(request.url);
   const routePath = extractMockPath(projectId, url.pathname);
-  const route = await findMatchingRoute(db, projectId, request.method, routePath);
+  const candidates = await findRoutesForMethod(db, projectId, request.method);
+  const match = findMatchingRouteWithParams(candidates, routePath);
 
-  if (!route) {
+  if (!match) {
     return new Response(JSON.stringify({ error: 'No matching mock route' }), {
       status: 404,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
+  const { route, params } = match;
   const ctx = await buildRequestContext(request);
   const rules = await findRouteRules(db, route.id);
-  const matched = selectMatchingRule(rules, ctx);
-  const config = matched ? ruleToResponseConfig(matched) : routeToResponseConfig(route);
+  const matchedRule = selectMatchingRule(rules, ctx);
 
-  return buildMockResponse(config);
+  if (matchedRule) {
+    return buildMockResponse(ruleToResponseConfig(matchedRule));
+  }
+
+  if (route.store_operation && route.store_collection_id) {
+    return handleStoreRequest(db, projectId, route, params, ctx);
+  }
+
+  return buildMockResponse(routeToResponseConfig(route));
 }

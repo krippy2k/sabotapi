@@ -4,8 +4,12 @@ import { users } from './users';
 import { teamInvites, teamMembers, teamRoleValues, teams } from './teams';
 import { projectMembers, projects } from './projects';
 import {
+  apiRouteRules,
   apiRoutes,
+  conditionOperatorValues,
+  conditionSourceValues,
   httpMethodValues,
+  matchModeValues,
   projectApis,
   responseTypeValues,
 } from './mocks';
@@ -228,8 +232,18 @@ export const apiRoutePreviewSchema = z
   .object({
     teamId: z.string().uuid(),
     projectId: z.string().uuid(),
+    apiId: z.string().uuid().optional(),
+    routeId: z.string().uuid().optional(),
+    method: httpMethodSchema.optional().default('GET'),
     responseType: responseTypeSchema,
     responseBody: z.string(),
+    requestContext: z
+      .object({
+        query: z.record(z.string()).optional(),
+        headers: z.record(z.string()).optional(),
+        body: z.string().optional(),
+      })
+      .optional(),
   })
   .superRefine((data, ctx) => {
     try {
@@ -246,5 +260,92 @@ export const apiRoutePreviewSchema = z
     }
   });
 
+const conditionOperatorSchema = z.enum(conditionOperatorValues);
+const conditionSourceSchema = z.enum(conditionSourceValues);
+const matchModeSchema = z.enum(matchModeValues);
+
+export const routeConditionSchema = z
+  .object({
+    source: conditionSourceSchema,
+    key: z.string().min(1),
+    operator: conditionOperatorSchema,
+    value: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const needsValue = ['equals', 'not_equals', 'contains'].includes(data.operator);
+    if (needsValue && (data.value === undefined || data.value === '')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Value is required for this operator',
+        path: ['value'],
+      });
+    }
+  });
+
+const routeRuleFieldsSchema = z.object({
+  name: z.string().max(100).optional().nullable(),
+  priority: z.number().int().min(0).optional(),
+  matchMode: matchModeSchema.default('all'),
+  conditions: z.array(routeConditionSchema).min(1),
+  statusCode: z.number().int().min(100).max(599).optional().default(200),
+  responseType: responseTypeSchema,
+  responseBody: z.string(),
+});
+
+const routeRuleResponseRefine = (
+  data: { responseType: string; responseBody: string },
+  ctx: z.RefinementCtx
+) => {
+  try {
+    responseBodyRefine(data);
+  } catch (err) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: err instanceof Error ? err.message : 'Invalid response body',
+      path: ['responseBody'],
+    });
+  }
+};
+
+export const routeRuleSelectSchema = createSelectSchema(apiRouteRules).transform((row) => ({
+  id: row.id,
+  route_id: row.route_id,
+  name: row.name,
+  priority: row.priority,
+  match_mode: row.match_mode,
+  conditions: JSON.parse(row.conditions) as z.infer<typeof routeConditionSchema>[],
+  status_code: row.status_code,
+  response_type: row.response_type,
+  response_body: row.response_body,
+  created_at: row.created_at.toISOString(),
+  updated_at: row.updated_at.toISOString(),
+}));
+
+export const routeRuleListSchema = apiRouteIdSchema;
+
+export const routeRuleListForApiSchema = projectApiIdSchema;
+
+export const routeRuleCreateSchema = apiRouteIdSchema
+  .merge(routeRuleFieldsSchema)
+  .superRefine(routeRuleResponseRefine);
+
+export const routeRuleUpdateSchema = apiRouteIdSchema
+  .extend({ ruleId: z.string().uuid() })
+  .merge(routeRuleFieldsSchema)
+  .superRefine(routeRuleResponseRefine);
+
+export const routeRuleIdSchema = z.object({
+  teamId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  apiId: z.string().uuid(),
+  routeId: z.string().uuid(),
+  ruleId: z.string().uuid(),
+});
+
+export const routeRuleReorderSchema = apiRouteIdSchema.extend({
+  ruleIds: z.array(z.string().uuid()).min(1),
+});
+
 export type ProjectApiSelect = z.infer<typeof projectApiSelectSchema>;
 export type ApiRouteSelect = z.infer<typeof apiRouteSelectSchema>;
+export type RouteRuleSelect = z.infer<typeof routeRuleSelectSchema>;

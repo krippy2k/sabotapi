@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Pencil, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { RouteRuleBuilder } from '@/components/route-rule-builder';
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
 
@@ -76,6 +77,11 @@ export function ApiDetail() {
   const [routeForm, setRouteForm] = useState<RouteFormState>(emptyRouteForm);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm>(null);
   const [previewBody, setPreviewBody] = useState<string | null>(null);
+  const [previewStatus, setPreviewStatus] = useState<number | null>(null);
+  const [previewMatchedRule, setPreviewMatchedRule] = useState<string | null>(null);
+  const [previewQuery, setPreviewQuery] = useState('status=pending');
+  const [previewHeaders, setPreviewHeaders] = useState('Authorization: Bearer test');
+  const [previewRequestBody, setPreviewRequestBody] = useState('');
 
   const utils = trpc.useUtils();
   const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5500';
@@ -88,6 +94,19 @@ export function ApiDetail() {
   const routesQuery = trpc.mockApi.routes.list.useQuery(
     { teamId: teamId!, projectId: projectId!, apiId: apiId! },
     { enabled: !!teamId && !!projectId && !!apiId }
+  );
+
+  const rulesForApiQuery = trpc.mockApi.rules.listForApi.useQuery(
+    { teamId: teamId!, projectId: projectId!, apiId: apiId! },
+    { enabled: !!teamId && !!projectId && !!apiId }
+  );
+
+  const ruleCountByRoute = (rulesForApiQuery.data ?? []).reduce<Record<string, number>>(
+    (acc, rule) => {
+      acc[rule.route_id] = (acc[rule.route_id] ?? 0) + 1;
+      return acc;
+    },
+    {}
   );
 
   const api = apisQuery.data?.find((a) => a.id === apiId);
@@ -134,8 +153,56 @@ export function ApiDetail() {
   });
 
   const previewMutation = trpc.mockApi.routes.preview.useMutation({
-    onSuccess: (data) => setPreviewBody(data.resolvedBody),
+    onSuccess: (data) => {
+      setPreviewBody(data.resolvedBody);
+      setPreviewStatus(data.statusCode);
+      setPreviewMatchedRule(data.matchedRuleId);
+    },
   });
+
+  const parsePreviewQuery = (): Record<string, string> => {
+    const params: Record<string, string> = {};
+    for (const part of previewQuery.split('&')) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) {
+        params[trimmed] = '';
+      } else {
+        params[trimmed.slice(0, eq)] = trimmed.slice(eq + 1);
+      }
+    }
+    return params;
+  };
+
+  const parsePreviewHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = {};
+    for (const line of previewHeaders.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const colon = trimmed.indexOf(':');
+      if (colon === -1) continue;
+      headers[trimmed.slice(0, colon).trim()] = trimmed.slice(colon + 1).trim();
+    }
+    return headers;
+  };
+
+  const runPreview = () => {
+    void previewMutation.mutateAsync({
+      teamId,
+      projectId,
+      apiId,
+      routeId: routeForm.routeId,
+      method: routeForm.method,
+      responseType: routeForm.responseType,
+      responseBody: routeForm.responseBody,
+      requestContext: {
+        query: parsePreviewQuery(),
+        headers: parsePreviewHeaders(),
+        body: previewRequestBody || undefined,
+      },
+    });
+  };
 
   useEffect(() => {
     if (api) {
@@ -163,6 +230,9 @@ export function ApiDetail() {
   }
 
   const startEditRoute = (route: NonNullable<typeof routesQuery.data>[number]) => {
+    setPreviewBody(null);
+    setPreviewStatus(null);
+    setPreviewMatchedRule(null);
     setRouteForm({
       routeId: route.id,
       path: route.path,
@@ -371,14 +441,12 @@ export function ApiDetail() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        void previewMutation.mutateAsync({
-                          teamId,
-                          projectId,
-                          responseType: routeForm.responseType,
-                          responseBody: routeForm.responseBody,
-                        })
-                      }
+                      onClick={() => {
+                        setPreviewBody(null);
+                        setPreviewStatus(null);
+                        setPreviewMatchedRule(null);
+                        runPreview();
+                      }}
                       disabled={previewMutation.isPending}
                     >
                       {previewMutation.isPending ? 'Previewing…' : 'Preview'}
@@ -417,18 +485,77 @@ export function ApiDetail() {
                     </li>
                   ))}
                 </ul>
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="text-xs font-medium">Preview request context</p>
+                  <div className="space-y-1">
+                    <Label htmlFor="previewQuery" className="text-xs">
+                      Query string
+                    </Label>
+                    <Input
+                      id="previewQuery"
+                      className="font-mono text-xs h-8"
+                      value={previewQuery}
+                      onChange={(e) => setPreviewQuery(e.target.value)}
+                      placeholder="status=pending"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="previewHeaders" className="text-xs">
+                      Headers (one per line)
+                    </Label>
+                    <textarea
+                      id="previewHeaders"
+                      className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-2 py-1 text-xs font-mono"
+                      value={previewHeaders}
+                      onChange={(e) => setPreviewHeaders(e.target.value)}
+                      placeholder="Authorization: Bearer token"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="previewRequestBody" className="text-xs">
+                      Request body
+                    </Label>
+                    <textarea
+                      id="previewRequestBody"
+                      className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-2 py-1 text-xs font-mono"
+                      value={previewRequestBody}
+                      onChange={(e) => setPreviewRequestBody(e.target.value)}
+                      placeholder='{"role":"admin"}'
+                    />
+                  </div>
+                </div>
                 {previewMutation.isError ? (
                   <p className="text-sm text-destructive">{previewMutation.error.message}</p>
                 ) : null}
                 {previewBody !== null ? (
                   <div className="space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground">Preview output</p>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Preview output
+                      {previewStatus !== null ? ` · HTTP ${previewStatus}` : ''}
+                      {previewMatchedRule
+                        ? ' · matched rule'
+                        : routeForm.routeId
+                          ? ' · fallback response'
+                          : ''}
+                    </p>
                     <pre className="text-xs rounded-md border bg-muted/50 p-3 overflow-x-auto font-mono whitespace-pre-wrap">
                       {previewBody}
                     </pre>
                   </div>
                 ) : null}
               </div>
+              {routeForm.routeId ? (
+                <RouteRuleBuilder
+                  teamId={teamId}
+                  projectId={projectId}
+                  apiId={apiId}
+                  routeId={routeForm.routeId}
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Save the route first to add conditional response rules.
+                </p>
+              )}
               <Button
                 onClick={() => void saveRoute()}
                 disabled={createRouteMutation.isPending || updateRouteMutation.isPending}
@@ -459,6 +586,9 @@ export function ApiDetail() {
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {route.status_code} · {route.response_type}
+                      {(ruleCountByRoute[route.id] ?? 0) > 0
+                        ? ` · ${ruleCountByRoute[route.id]} rule${ruleCountByRoute[route.id] === 1 ? '' : 's'}`
+                        : ''}
                     </p>
                     <code className="text-xs block truncate text-muted-foreground">
                       {apiBaseUrl}/mock/{projectId}

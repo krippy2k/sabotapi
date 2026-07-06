@@ -4,8 +4,6 @@ import { trpc } from '@/lib/trpc';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Trash2, Webhook } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { MockCollectionPanel } from '@/components/mock-collection-panel';
@@ -181,7 +179,82 @@ export function ProjectDetail() {
         <h1 className="text-3xl font-bold mb-6">{project.name}</h1>
       )}
 
-      <Card>
+      <Card className="mb-6">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Webhook className="w-5 h-5" />
+              APIs
+            </CardTitle>
+            <CardDescription>Mock APIs and routes for this project</CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setShowApiForm((v) => !v)}>
+            New API
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {showApiForm ? (
+            <div className="flex gap-2">
+              <Input
+                value={apiName}
+                onChange={(e) => setApiName(e.target.value)}
+                placeholder="API name"
+              />
+              <Button
+                onClick={() =>
+                  void createApiMutation.mutateAsync({ teamId, projectId, name: apiName })
+                }
+                disabled={!apiName.trim() || createApiMutation.isPending}
+              >
+                Create
+              </Button>
+            </div>
+          ) : null}
+          {createApiMutation.isError ? (
+            <p className="text-sm text-destructive">{createApiMutation.error.message}</p>
+          ) : null}
+          {apisQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading APIs…</p>
+          ) : !apisQuery.data?.length ? (
+            <p className="text-sm text-muted-foreground">No APIs yet</p>
+          ) : (
+            <div className="space-y-2">
+              {apisQuery.data.map((api) => (
+                <div
+                  key={api.id}
+                  className="flex items-center justify-between py-2 border-b last:border-0"
+                >
+                  <Link
+                    to={`/teams/${teamId}/projects/${projectId}/apis/${api.id}`}
+                    className="font-medium hover:underline"
+                  >
+                    {api.name}
+                  </Link>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to={`/teams/${teamId}/projects/${projectId}/apis/${api.id}`}>
+                      Manage routes
+                    </Link>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Mock data stores</CardTitle>
+          <CardDescription>
+            Collections persist across requests — use with stateful CRUD routes
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <MockCollectionPanel teamId={teamId} projectId={projectId} />
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
         <CardHeader>
           <CardTitle>Project members</CardTitle>
           <CardDescription>
@@ -261,83 +334,6 @@ export function ProjectDetail() {
           {deleteMutation.isError ? (
             <p className="text-sm text-destructive">{deleteMutation.error.message}</p>
           ) : null}
-        </CardContent>
-      </Card>
-
-      <Separator className="my-6" />
-
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Mock data stores</CardTitle>
-          <CardDescription>
-            Collections persist across requests — use with stateful CRUD routes
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MockCollectionPanel teamId={teamId} projectId={projectId} />
-        </CardContent>
-      </Card>
-
-      <Card className="mb-6">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Webhook className="w-5 h-5" />
-              APIs
-            </CardTitle>
-            <CardDescription>Mock APIs and routes for this project</CardDescription>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => setShowApiForm((v) => !v)}>
-            New API
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {showApiForm ? (
-            <div className="flex gap-2">
-              <Input
-                value={apiName}
-                onChange={(e) => setApiName(e.target.value)}
-                placeholder="API name"
-              />
-              <Button
-                onClick={() =>
-                  void createApiMutation.mutateAsync({ teamId, projectId, name: apiName })
-                }
-                disabled={!apiName.trim() || createApiMutation.isPending}
-              >
-                Create
-              </Button>
-            </div>
-          ) : null}
-          {createApiMutation.isError ? (
-            <p className="text-sm text-destructive">{createApiMutation.error.message}</p>
-          ) : null}
-          {apisQuery.isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading APIs…</p>
-          ) : !apisQuery.data?.length ? (
-            <p className="text-sm text-muted-foreground">No APIs yet</p>
-          ) : (
-            <div className="space-y-2">
-              {apisQuery.data.map((api) => (
-                <div
-                  key={api.id}
-                  className="flex items-center justify-between py-2 border-b last:border-0"
-                >
-                  <Link
-                    to={`/teams/${teamId}/projects/${projectId}/apis/${api.id}`}
-                    className="font-medium hover:underline"
-                  >
-                    {api.name}
-                  </Link>
-                  <Button variant="outline" size="sm" asChild>
-                    <Link to={`/teams/${teamId}/projects/${projectId}/apis/${api.id}`}>
-                      Manage routes
-                    </Link>
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
         </CardContent>
       </Card>
 

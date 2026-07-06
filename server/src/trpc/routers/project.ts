@@ -16,7 +16,6 @@ import {
   isTeamAdmin,
   requireProjectAccess,
   requireProjectInTeam,
-  requireProjectMember,
 } from '../../lib/project-auth';
 import { requireAdmin, requireMembership } from '../../lib/team-auth';
 import { protectedProcedure, verifiedProcedure, router } from '../init';

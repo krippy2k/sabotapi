@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Pencil, Play, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { RouteRuleBuilder } from '@/components/route-rule-builder';
@@ -216,6 +215,7 @@ export function ApiDetail() {
   };
 
   const runPreview = () => {
+    if (!teamId || !projectId || !apiId) return;
     void previewMutation.mutateAsync({
       teamId,
       projectId,
@@ -266,9 +266,9 @@ export function ApiDetail() {
     setRouteForm({
       routeId: route.id,
       path: route.path,
-      method: route.method,
+      method: route.method as RouteFormState['method'],
       statusCode: route.status_code,
-      responseType: route.response_type,
+      responseType: route.response_type as RouteFormState['responseType'],
       responseBody: route.response_body,
       responseMode: isStateful ? 'stateful' : 'static',
       storeCollectionId: route.store_collection_id ?? '',

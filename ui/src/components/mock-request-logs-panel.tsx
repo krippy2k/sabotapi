@@ -15,12 +15,14 @@ type MockRequestLogsPanelProps = {
 
 function formatTimestamp(iso: string): string {
   try {
-    return new Date(iso).toLocaleTimeString(undefined, {
+    const date = new Date(iso);
+    const time = date.toLocaleTimeString(undefined, {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      fractionalSecondDigits: 3,
     });
+    const ms = String(date.getMilliseconds()).padStart(3, '0');
+    return `${time}.${ms}`;
   } catch {
     return iso;
   }

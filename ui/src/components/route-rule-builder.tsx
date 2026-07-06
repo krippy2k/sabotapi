@@ -138,15 +138,15 @@ export function RouteRuleBuilder({ teamId, projectId, apiId, routeId }: RouteRul
     setRuleForm({
       ruleId: rule.id,
       name: rule.name ?? '',
-      matchMode: rule.match_mode,
+      matchMode: rule.match_mode as RuleFormState['matchMode'],
       conditions: rule.conditions.map((c) => ({
-        source: c.source,
+        source: c.source as ConditionForm['source'],
         key: c.key,
-        operator: c.operator,
+        operator: c.operator as ConditionForm['operator'],
         value: c.value ?? '',
       })),
       statusCode: rule.status_code,
-      responseType: rule.response_type,
+      responseType: rule.response_type as RuleFormState['responseType'],
       responseBody: rule.response_body,
     });
     setShowForm(true);

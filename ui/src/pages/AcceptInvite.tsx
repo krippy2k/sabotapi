@@ -62,6 +62,24 @@ export function AcceptInvite() {
   }
 
   const preview = previewQuery.data;
+  if (!preview) {
+    return (
+      <div className="flex items-center justify-center min-h-screen p-4">
+        <Card className="max-w-md w-full">
+          <CardHeader>
+            <CardTitle>Invite unavailable</CardTitle>
+            <CardDescription>Could not load invite details.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="outline">
+              <Link to="/">Go home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const needsSignIn = !user || user.isAnonymous;
   const emailMismatch =
     user &&

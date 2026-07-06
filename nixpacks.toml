@@ -1,0 +1,3 @@
+# Railway/Nixpacks: pnpm 11 requires Node.js >= 22.13
+[variables]
+NODE_VERSION = "22"

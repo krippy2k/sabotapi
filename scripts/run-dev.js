@@ -15,7 +15,8 @@ import {
   getDatabaseUrl,
   readServerEnv,
   updateWranglerConfigWithPort,
-  restoreWranglerConfig
+  restoreWranglerConfig,
+  freePort,
 } from './port-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -271,6 +272,10 @@ async function startServices() {
       // Port is set via wrangler.toml config update, not CLI argument
       commands.push(`"cd server && wrangler dev --local-protocol http"`);
     } else {
+      if (await isPortListening(availablePorts.backend)) {
+        console.log(`♻️  Backend port ${availablePorts.backend} in use — stopping stale process before restart`);
+        freePort(availablePorts.backend);
+      }
       commands.push(`"cd server && pnpm run dev -- --port ${availablePorts.backend}"`);
     }
     

@@ -12,6 +12,18 @@ import { findMatchingRouteWithParams } from './mock-path-match';
 import { handleStoreRequest } from './mock-store';
 import { extractMockPath } from './mock-validation';
 
+export type MockRequestMeta = {
+  matchedRouteId: string | null;
+  matchedRuleId: string | null;
+  storeOperation: string | null;
+  resolvedPath: string;
+};
+
+export type MockRequestResult = {
+  response: Response;
+  meta: MockRequestMeta;
+};
+
 export function getContentTypeForResponse(
   responseType: MockResponseConfig['response_type']
 ): string {
@@ -73,21 +85,29 @@ export function routeToResponseConfig(route: ApiRoute): MockResponseConfig {
   };
 }
 
-export async function handleMockRequest(
+export async function executeMockRequest(
   db: DatabaseConnection,
   projectId: string,
   request: Request
-): Promise<Response> {
+): Promise<MockRequestResult> {
   const url = new URL(request.url);
   const routePath = extractMockPath(projectId, url.pathname);
   const candidates = await findRoutesForMethod(db, projectId, request.method);
   const match = findMatchingRouteWithParams(candidates, routePath);
 
   if (!match) {
-    return new Response(JSON.stringify({ error: 'No matching mock route' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return {
+      response: new Response(JSON.stringify({ error: 'No matching mock route' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      meta: {
+        matchedRouteId: null,
+        matchedRuleId: null,
+        storeOperation: null,
+        resolvedPath: routePath,
+      },
+    };
   }
 
   const { route, params } = match;
@@ -96,12 +116,45 @@ export async function handleMockRequest(
   const matchedRule = selectMatchingRule(rules, ctx);
 
   if (matchedRule) {
-    return buildMockResponse(ruleToResponseConfig(matchedRule));
+    return {
+      response: buildMockResponse(ruleToResponseConfig(matchedRule)),
+      meta: {
+        matchedRouteId: route.id,
+        matchedRuleId: matchedRule.id,
+        storeOperation: null,
+        resolvedPath: routePath,
+      },
+    };
   }
 
   if (route.store_operation && route.store_collection_id) {
-    return handleStoreRequest(db, projectId, route, params, ctx);
+    return {
+      response: await handleStoreRequest(db, projectId, route, params, ctx),
+      meta: {
+        matchedRouteId: route.id,
+        matchedRuleId: null,
+        storeOperation: route.store_operation,
+        resolvedPath: routePath,
+      },
+    };
   }
 
-  return buildMockResponse(routeToResponseConfig(route));
+  return {
+    response: buildMockResponse(routeToResponseConfig(route)),
+    meta: {
+      matchedRouteId: route.id,
+      matchedRuleId: null,
+      storeOperation: null,
+      resolvedPath: routePath,
+    },
+  };
+}
+
+export async function handleMockRequest(
+  db: DatabaseConnection,
+  projectId: string,
+  request: Request
+): Promise<Response> {
+  const { response } = await executeMockRequest(db, projectId, request);
+  return response;
 }

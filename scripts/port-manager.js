@@ -1,4 +1,5 @@
 import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs';
+import { execSync } from 'child_process';
 import net from 'net';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -25,6 +26,47 @@ export function isPortListening(port) {
     });
     socket.once('error', () => resolve(false));
   });
+}
+
+/**
+ * Stop processes listening on a TCP port (dev convenience when a stale server is left behind).
+ * @param {number} port
+ */
+export function freePort(port) {
+  if (process.platform === 'win32') {
+    try {
+      const output = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf8' });
+      const pids = new Set();
+      for (const line of output.split('\n')) {
+        if (!line.includes('LISTENING')) {
+          continue;
+        }
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && pid !== '0') {
+          pids.add(pid);
+        }
+      }
+      for (const pid of pids) {
+        try {
+          execSync(`taskkill /PID ${pid} /F`, { stdio: 'ignore' });
+          console.log(`♻️  Freed port ${port} (stopped PID ${pid})`);
+        } catch {
+          // ignore per-PID failures
+        }
+      }
+    } catch {
+      // nothing listening or netstat unavailable
+    }
+    return;
+  }
+
+  try {
+    execSync(`lsof -ti:${port} | xargs kill -9`, { stdio: 'ignore', shell: true });
+    console.log(`♻️  Freed port ${port}`);
+  } catch {
+    // nothing to kill
+  }
 }
 
 /**

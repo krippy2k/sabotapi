@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Trash2, Webhook } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { MockCollectionPanel } from '@/components/mock-collection-panel';
+import { MockRequestLogsPanel } from '@/components/mock-request-logs-panel';
 
 type PendingConfirm =
   | { type: 'deleteProject' }
@@ -25,6 +26,7 @@ export function ProjectDetail() {
   const [showApiForm, setShowApiForm] = useState(false);
 
   const utils = trpc.useUtils();
+  const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5500';
 
   const projectQuery = trpc.project.get.useQuery(
     { teamId: teamId!, projectId: projectId! },
@@ -338,6 +340,8 @@ export function ProjectDetail() {
           )}
         </CardContent>
       </Card>
+
+      <MockRequestLogsPanel teamId={teamId} projectId={projectId} apiBaseUrl={apiBaseUrl} />
 
       <ConfirmDialog
         open={confirmOpen}

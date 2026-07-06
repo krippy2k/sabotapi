@@ -7,6 +7,7 @@ import {
   apiRouteListSchema,
   apiRoutePreviewSchema,
   apiRouteSelectSchema,
+  apiRouteTestSchema,
   apiRouteUpdateSchema,
   mockCollectionCreateSchema,
   mockCollectionIdSchema,
@@ -19,6 +20,7 @@ import {
   projectApiListSchema,
   projectApiSelectSchema,
   projectApiUpdateSchema,
+  projectIdSchema,
   routeRuleCreateSchema,
   routeRuleIdSchema,
   routeRuleListForApiSchema,
@@ -37,6 +39,15 @@ import {
   findRouteRules,
   routeToResponseConfig,
 } from '../../lib/mock-proxy';
+import { executeMockRequestWithLogging } from '../../lib/mock-gateway-log';
+import { getRecentLogs } from '../../lib/mock-request-logs';
+import {
+  buildDisplayMockUrl,
+  buildMockTestRequest,
+  buildMockTestUrl,
+  responseToTestResult,
+  substitutePathParams,
+} from '../../lib/mock-test-request';
 import {
   deleteCollectionFile,
   getCollectionSnapshot,
@@ -294,6 +305,35 @@ export const mockApiRouter = router({
       const resolvedBody = resolveResponseBody(responseType, responseBody);
       return { resolvedBody, statusCode, matchedRuleId };
     }),
+
+    test: protectedProcedure.input(apiRouteTestSchema).mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.db, input.teamId, input.projectId, ctx.user.id);
+      await requireApiInProject(ctx.db, input.apiId, input.projectId);
+      const route = await requireRouteInApi(ctx.db, input.routeId, input.apiId);
+
+      const resolvedPath = substitutePathParams(route.path, input.pathParams ?? {});
+      const testUrl = buildMockTestUrl(input.projectId, resolvedPath, input.query);
+      const request = buildMockTestRequest(
+        route.method,
+        testUrl,
+        input.headers,
+        input.body
+      );
+
+      const start = Date.now();
+      const { response, meta } = await executeMockRequestWithLogging(ctx.db, input.projectId, request);
+      const durationMs = Date.now() - start;
+
+      const apiOrigin = input.apiOrigin ?? 'http://localhost:5500';
+      const displayMockUrl = buildDisplayMockUrl(
+        apiOrigin,
+        input.projectId,
+        resolvedPath,
+        input.query
+      );
+
+      return responseToTestResult(response, meta, durationMs, displayMockUrl);
+    }),
   }),
 
   rules: router({
@@ -507,6 +547,13 @@ export const mockApiRouter = router({
 
       const items = await getCollectionSnapshot(input.projectId, collection);
       return { items, count: items.length };
+    }),
+  }),
+
+  logs: router({
+    recent: protectedProcedure.input(projectIdSchema).query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.db, input.teamId, input.projectId, ctx.user.id);
+      return getRecentLogs(input.projectId);
     }),
   }),
 });

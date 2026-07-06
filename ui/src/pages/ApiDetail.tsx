@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, Pencil, Play, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { RouteRuleBuilder } from '@/components/route-rule-builder';
+import { RouteTester, RouteTesterSheet } from '@/components/route-tester';
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
 const STORE_OPERATIONS = ['list', 'get', 'create', 'update', 'delete'] as const;
@@ -90,6 +91,7 @@ export function ApiDetail() {
   const [previewQuery, setPreviewQuery] = useState('status=pending');
   const [previewHeaders, setPreviewHeaders] = useState('Authorization: Bearer test');
   const [previewRequestBody, setPreviewRequestBody] = useState('');
+  const [testingRouteId, setTestingRouteId] = useState<string | null>(null);
   const [showNewCollectionForm, setShowNewCollectionForm] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [newCollectionIdField, setNewCollectionIdField] = useState('id');
@@ -333,6 +335,14 @@ export function ApiDetail() {
 
   const routeMutationError =
     createRouteMutation.error ?? updateRouteMutation.error ?? deleteRouteMutation.error;
+
+  const testingRoute = testingRouteId
+    ? routesQuery.data?.find((r) => r.id === testingRouteId)
+    : undefined;
+
+  const editingRoute = routeForm.routeId
+    ? routesQuery.data?.find((r) => r.id === routeForm.routeId)
+    : undefined;
 
   return (
     <div className="container mx-auto p-6 max-w-4xl">
@@ -622,20 +632,22 @@ export function ApiDetail() {
                         Insert array template
                       </Button>
                     ) : null}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setPreviewBody(null);
-                        setPreviewStatus(null);
-                        setPreviewMatchedRule(null);
-                        runPreview();
-                      }}
-                      disabled={previewMutation.isPending}
-                    >
-                      {previewMutation.isPending ? 'Previewing…' : 'Preview'}
-                    </Button>
+                    {!routeForm.routeId ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPreviewBody(null);
+                          setPreviewStatus(null);
+                          setPreviewMatchedRule(null);
+                          runPreview();
+                        }}
+                        disabled={previewMutation.isPending}
+                      >
+                        {previewMutation.isPending ? 'Previewing…' : 'Preview'}
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
                 <textarea
@@ -681,62 +693,79 @@ export function ApiDetail() {
                     </ul>
                   </>
                 )}
-                <div className="space-y-2 rounded-md border p-3">
-                  <p className="text-xs font-medium">Preview request context</p>
-                  <div className="space-y-1">
-                    <Label htmlFor="previewQuery" className="text-xs">
-                      Query string
-                    </Label>
-                    <Input
-                      id="previewQuery"
-                      className="font-mono text-xs h-8"
-                      value={previewQuery}
-                      onChange={(e) => setPreviewQuery(e.target.value)}
-                      placeholder="status=pending"
+                {!routeForm.routeId ? (
+                  <>
+                    <div className="space-y-2 rounded-md border p-3">
+                      <p className="text-xs font-medium">Preview request context</p>
+                      <div className="space-y-1">
+                        <Label htmlFor="previewQuery" className="text-xs">
+                          Query string
+                        </Label>
+                        <Input
+                          id="previewQuery"
+                          className="font-mono text-xs h-8"
+                          value={previewQuery}
+                          onChange={(e) => setPreviewQuery(e.target.value)}
+                          placeholder="status=pending"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="previewHeaders" className="text-xs">
+                          Headers (one per line)
+                        </Label>
+                        <textarea
+                          id="previewHeaders"
+                          className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-2 py-1 text-xs font-mono"
+                          value={previewHeaders}
+                          onChange={(e) => setPreviewHeaders(e.target.value)}
+                          placeholder="Authorization: Bearer token"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="previewRequestBody" className="text-xs">
+                          Request body
+                        </Label>
+                        <textarea
+                          id="previewRequestBody"
+                          className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-2 py-1 text-xs font-mono"
+                          value={previewRequestBody}
+                          onChange={(e) => setPreviewRequestBody(e.target.value)}
+                          placeholder='{"role":"admin"}'
+                        />
+                      </div>
+                    </div>
+                    {previewMutation.isError ? (
+                      <p className="text-sm text-destructive">{previewMutation.error.message}</p>
+                    ) : null}
+                    {previewBody !== null ? (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Preview output
+                          {previewStatus !== null ? ` · HTTP ${previewStatus}` : ''}
+                          {previewMatchedRule ? ' · matched rule' : ''}
+                        </p>
+                        <pre className="text-xs rounded-md border bg-muted/50 p-3 overflow-x-auto font-mono whitespace-pre-wrap">
+                          {previewBody}
+                        </pre>
+                      </div>
+                    ) : null}
+                  </>
+                ) : editingRoute ? (
+                  <div className="space-y-2 rounded-md border p-3">
+                    <p className="text-xs font-medium">Test saved route</p>
+                    <RouteTester
+                      teamId={teamId}
+                      projectId={projectId}
+                      apiId={apiId}
+                      route={{
+                        id: editingRoute.id,
+                        method: editingRoute.method,
+                        path: editingRoute.path,
+                        store_operation: editingRoute.store_operation,
+                      }}
+                      apiBaseUrl={apiBaseUrl}
+                      compact
                     />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="previewHeaders" className="text-xs">
-                      Headers (one per line)
-                    </Label>
-                    <textarea
-                      id="previewHeaders"
-                      className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-2 py-1 text-xs font-mono"
-                      value={previewHeaders}
-                      onChange={(e) => setPreviewHeaders(e.target.value)}
-                      placeholder="Authorization: Bearer token"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="previewRequestBody" className="text-xs">
-                      Request body
-                    </Label>
-                    <textarea
-                      id="previewRequestBody"
-                      className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-2 py-1 text-xs font-mono"
-                      value={previewRequestBody}
-                      onChange={(e) => setPreviewRequestBody(e.target.value)}
-                      placeholder='{"role":"admin"}'
-                    />
-                  </div>
-                </div>
-                {previewMutation.isError ? (
-                  <p className="text-sm text-destructive">{previewMutation.error.message}</p>
-                ) : null}
-                {previewBody !== null ? (
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Preview output
-                      {previewStatus !== null ? ` · HTTP ${previewStatus}` : ''}
-                      {previewMatchedRule
-                        ? ' · matched rule'
-                        : routeForm.routeId
-                          ? ' · fallback response'
-                          : ''}
-                    </p>
-                    <pre className="text-xs rounded-md border bg-muted/50 p-3 overflow-x-auto font-mono whitespace-pre-wrap">
-                      {previewBody}
-                    </pre>
                   </div>
                 ) : null}
               </div>
@@ -795,6 +824,14 @@ export function ApiDetail() {
                     </code>
                   </div>
                   <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Test route"
+                      onClick={() => setTestingRouteId(route.id)}
+                    >
+                      <Play className="w-4 h-4" />
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => startEditRoute(route)}>
                       <Pencil className="w-4 h-4" />
                     </Button>
@@ -818,6 +855,23 @@ export function ApiDetail() {
           )}
         </CardContent>
       </Card>
+
+      {testingRoute ? (
+        <RouteTesterSheet
+          open={!!testingRouteId}
+          onOpenChange={(open) => !open && setTestingRouteId(null)}
+          teamId={teamId}
+          projectId={projectId}
+          apiId={apiId}
+          route={{
+            id: testingRoute.id,
+            method: testingRoute.method,
+            path: testingRoute.path,
+            store_operation: testingRoute.store_operation,
+          }}
+          apiBaseUrl={apiBaseUrl}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={confirmOpen}

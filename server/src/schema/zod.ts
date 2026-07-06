@@ -267,6 +267,14 @@ export const apiRouteIdSchema = z.object({
 
 export const apiRouteListSchema = projectApiIdSchema;
 
+export const apiRouteTestSchema = apiRouteIdSchema.extend({
+  pathParams: z.record(z.string()).optional(),
+  query: z.record(z.string()).optional(),
+  headers: z.record(z.string()).optional(),
+  body: z.string().optional(),
+  apiOrigin: z.string().optional(),
+});
+
 export const apiRoutePreviewSchema = z
   .object({
     teamId: z.string().uuid(),

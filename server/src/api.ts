@@ -5,7 +5,8 @@ import { logger } from 'hono/logger';
 import { trpcServer } from '@hono/trpc-server';
 import { setEnvContext, getDatabaseUrl } from './lib/env';
 import { getDatabase } from './lib/db';
-import { handleMockRequest } from './lib/mock-proxy';
+import { executeMockRequestWithLogging } from './lib/mock-gateway-log';
+import type { DatabaseConnection } from './lib/db';
 import { appRouter } from './trpc/router';
 import { createTRPCContext } from './trpc/init';
 
@@ -34,15 +35,24 @@ app.use('*', async (c, next) => {
 app.use('*', logger());
 app.use('*', cors());
 
+async function handleMockGatewayWithLogging(
+  db: DatabaseConnection,
+  projectId: string,
+  request: Request
+): Promise<Response> {
+  const { response } = await executeMockRequestWithLogging(db, projectId, request);
+  return response;
+}
+
 // Mock API gateway — public, no auth
 app.all('/mock/:projectId', async (c) => {
   const db = await getDatabase(getDatabaseUrl());
-  return handleMockRequest(db, c.req.param('projectId'), c.req.raw);
+  return handleMockGatewayWithLogging(db, c.req.param('projectId'), c.req.raw);
 });
 
 app.all('/mock/:projectId/*', async (c) => {
   const db = await getDatabase(getDatabaseUrl());
-  return handleMockRequest(db, c.req.param('projectId'), c.req.raw);
+  return handleMockGatewayWithLogging(db, c.req.param('projectId'), c.req.raw);
 });
 
 app.use(

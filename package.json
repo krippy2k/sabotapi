@@ -17,9 +17,10 @@
     "build": "cd ui && pnpm run build",
     "deploy": "node scripts/deploy-guard.js"
   },
+  "packageManager": "pnpm@11.7.0",
   "engines": {
     "node": ">=20.0.0",
-    "pnpm": ">=8.0.0"
+    "pnpm": ">=11.0.0"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
@@ -47,15 +48,5 @@
       "FIREBASE_MEASUREMENT_ID": "string",
       "DATABASE_URL": "string"
     }
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "embedded-postgres",
-      "@embedded-postgres/darwin-arm64",
-      "@embedded-postgres/darwin-x64",
-      "@embedded-postgres/linux-arm64",
-      "@embedded-postgres/linux-x64",
-      "@embedded-postgres/win32-x64"
-    ]
   }
 }
